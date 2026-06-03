@@ -182,8 +182,8 @@ export function ReportsView() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-4">
-                  <div className="w-32 h-32">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="mx-auto h-32 w-32 sm:mx-0">
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
@@ -205,17 +205,22 @@ export function ReportsView() {
                       </PieChart>
                     </ResponsiveContainer>
                   </div>
-                  <div className="flex-1 space-y-2">
+                  <div className="min-w-0 flex-1 space-y-2">
                     {paymentMethodData.map((item) => (
-                      <div key={item.method} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
+                      <div
+                        key={item.method}
+                        className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
                           <div 
                             className="w-3 h-3 rounded-full" 
                             style={{ backgroundColor: paymentColors[item.method] }}
                           />
-                          <span className="text-sm text-foreground">{item.name}</span>
+                          <span className="min-w-0 text-sm text-foreground wrap-break-word">
+                            {item.name}
+                          </span>
                         </div>
-                        <span className="text-sm font-medium text-foreground">
+                        <span className="text-sm font-medium text-foreground sm:text-right">
                           {formatCurrency(item.value)}
                         </span>
                       </div>

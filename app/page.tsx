@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useAppStore } from '@/lib/store'
 import { LoginPage } from '@/components/login-page'
 import { MainApp } from '@/components/main-app'
+import { IosPwaInstallBanner } from '@/components/ios-pwa-install-banner'
 
 export default function Home() {
   const [mounted, setMounted] = useState(false)
@@ -22,11 +23,19 @@ export default function Home() {
 
   if (!mounted || isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-primary font-medium">Carregando...</div>
-      </div>
+      <>
+        <IosPwaInstallBanner />
+        <div className="min-h-screen flex items-center justify-center bg-background">
+          <div className="animate-pulse text-primary font-medium">Carregando...</div>
+        </div>
+      </>
     )
   }
 
-  return isAuthenticated ? <MainApp /> : <LoginPage />
+  return (
+    <>
+      <IosPwaInstallBanner />
+      {isAuthenticated ? <MainApp /> : <LoginPage />}
+    </>
+  )
 }
