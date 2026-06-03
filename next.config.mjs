@@ -12,6 +12,7 @@ const nextConfig = {
 
 const withPWAConfig = withPWA({
   dest: 'public',
+  customWorkerDir: 'worker',
   disable: process.env.NODE_ENV === 'development',
   register: true,
   skipWaiting: true,

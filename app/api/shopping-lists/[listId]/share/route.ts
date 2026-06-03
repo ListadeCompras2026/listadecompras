@@ -5,6 +5,7 @@ import { getAuthenticatedUser } from '@/lib/session-user'
 import { ShoppingListModel } from '@/lib/models/shopping-list'
 import { UserModel } from '@/lib/models/user'
 import { toShoppingList } from '@/lib/shopping-list-serializer'
+import { sendPushToUser } from '@/lib/web-push'
 
 const shareSchema = z.object({
   email: z.string().trim().email(),
@@ -56,6 +57,12 @@ export async function POST(request: Request, context: RouteContext) {
     if (!list.sharedWith.includes(targetUserId)) {
       list.sharedWith.push(targetUserId)
       await list.save()
+
+      await sendPushToUser(targetUserId, {
+        title: 'Nova lista compartilhada',
+        body: `${authUser.name} compartilhou a lista "${list.name}" com voce.`,
+        url: '/',
+      })
     }
 
     return NextResponse.json({
