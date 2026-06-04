@@ -8,8 +8,9 @@ import { ReportsView } from './reports-view'
 import { BottomNav } from './bottom-nav'
 import { Header } from './header'
 import { PushNotificationPrompt } from './push-notification-prompt'
+import { SettingsView } from './settings-view'
 
-export type TabType = 'lists' | 'history' | 'reports'
+export type TabType = 'lists' | 'history' | 'reports' | 'settings'
 
 export function MainApp() {
   const [activeTab, setActiveTab] = useState<TabType>('lists')
@@ -26,6 +27,7 @@ export function MainApp() {
         {activeTab === 'lists' && <ShoppingListsView />}
         {activeTab === 'history' && <HistoryView />}
         {activeTab === 'reports' && <ReportsView />}
+        {activeTab === 'settings' && <SettingsView userName={currentUser.name} />}
       </main>
 
       <BottomNav activeTab={activeTab} onTabChange={setActiveTab} />
