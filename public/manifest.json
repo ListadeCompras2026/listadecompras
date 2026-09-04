@@ -1,11 +1,11 @@
 {
-  "name": "Lista de Compras",
-  "short_name": "Compras",
-  "description": "Aplicativo de lista de compras para casal",
+  "name": "Despesas",
+  "short_name": "Despesas",
+  "description": "Controle de despesas mensais, listas de compras e leitura de cupom fiscal",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8f9fa",
-  "theme_color": "#16a34a",
+  "background_color": "#F3F7F5",
+  "theme_color": "#00B37A",
   "orientation": "portrait",
   "icons": [
     {

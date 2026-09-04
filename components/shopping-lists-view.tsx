@@ -1,87 +1,115 @@
-'use client'
+"use client";
 
-import { useState } from 'react'
-import { useAppStore } from '@/lib/store'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Card, CardContent } from '@/components/ui/card'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-import { Plus, ShoppingBag, ChevronRight, Trash2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { ShoppingListDetail } from './shopping-list-detail'
-import type { ShoppingList } from '@/lib/types'
-import { format } from 'date-fns'
-import { ptBR } from 'date-fns/locale'
+import { useEffect, useState } from "react";
+import { useAppStore } from "@/lib/store";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Plus, ShoppingBag, ChevronRight, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ShoppingListDetail } from "./shopping-list-detail";
+import type { ShoppingList } from "@/lib/types";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import type { QuickAction } from "./main-app";
 
-export function ShoppingListsView() {
-  const [isCreateOpen, setIsCreateOpen] = useState(false)
-  const [newListName, setNewListName] = useState('')
-  const [selectedList, setSelectedList] = useState<ShoppingList | null>(null)
-  
-  const { createList, deleteList, getMyLists, shoppingLists } = useAppStore()
-  
-  const activeLists = getMyLists()
+interface ShoppingListsViewProps {
+  quickAction?: QuickAction;
+  onQuickActionConsumed?: () => void;
+}
+
+export function ShoppingListsView({
+  quickAction,
+  onQuickActionConsumed,
+}: ShoppingListsViewProps) {
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [newListName, setNewListName] = useState("");
+  const [selectedList, setSelectedList] = useState<ShoppingList | null>(null);
+
+  const { createList, deleteList, getMyLists, shoppingLists } = useAppStore();
+
+  const activeLists = getMyLists();
+
+  useEffect(() => {
+    if (quickAction === "list") {
+      setIsCreateOpen(true);
+      onQuickActionConsumed?.();
+    }
+  }, [onQuickActionConsumed, quickAction]);
 
   const handleCreateList = async (e: React.FormEvent) => {
-    e.preventDefault()
+    e.preventDefault();
     if (!newListName.trim()) {
-      toast.error('Digite um nome para a lista')
-      return
-    }
-    
-    const createdList = await createList(newListName.trim())
-    if (!createdList) {
-      toast.error('Não foi possível criar a lista')
-      return
+      toast.error("Digite um nome para a lista");
+      return;
     }
 
-    setNewListName('')
-    setIsCreateOpen(false)
-    toast.success('Lista criada com sucesso!')
-    setSelectedList(createdList)
-  }
+    const createdList = await createList(newListName.trim());
+    if (!createdList) {
+      toast.error("Não foi possível criar a lista");
+      return;
+    }
+
+    setNewListName("");
+    setIsCreateOpen(false);
+    toast.success("Lista criada com sucesso!");
+    setSelectedList(createdList);
+  };
 
   const handleDeleteList = async (listId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    const success = await deleteList(listId)
+    e.stopPropagation();
+    const success = await deleteList(listId);
     if (success) {
-      toast.success('Lista excluída')
-      return
+      toast.success("Lista excluída");
+      return;
     }
 
-    toast.error('Não foi possível excluir a lista')
-  }
+    toast.error("Não foi possível excluir a lista");
+  };
 
   const handleSelectList = (list: ShoppingList) => {
     // Get the fresh list from store
-    const freshList = shoppingLists.find(l => l.id === list.id)
+    const freshList = shoppingLists.find((l) => l.id === list.id);
     if (freshList) {
-      setSelectedList(freshList)
+      setSelectedList(freshList);
     }
-  }
+  };
 
   if (selectedList) {
-    const freshList = shoppingLists.find(l => l.id === selectedList.id)
+    const freshList = shoppingLists.find((l) => l.id === selectedList.id);
     if (freshList) {
       return (
-        <ShoppingListDetail 
-          list={freshList} 
-          onBack={() => setSelectedList(null)} 
+        <ShoppingListDetail
+          list={freshList}
+          onBack={() => setSelectedList(null)}
         />
-      )
+      );
     }
   }
 
   return (
-    <div className="p-4 space-y-6">
-      {/* Create List Button */}
+    <div className="p-4 space-y-5">
+      <div className="flex items-center justify-between pt-2">
+        <div>
+          <h1 className="text-xl font-semibold text-foreground">Listas</h1>
+          <p className="text-sm text-muted-foreground">Compras da casa</p>
+        </div>
+        <Button
+          size="sm"
+          className="gap-1 rounded-full"
+          onClick={() => setIsCreateOpen(true)}
+        >
+          <Plus className="h-4 w-4" />
+          Nova
+        </Button>
+      </div>
+
       <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-        <DialogTrigger asChild>
-          <Button className="w-full h-12 text-base gap-2">
-            <Plus className="w-5 h-5" />
-            Nova Lista
-          </Button>
-        </DialogTrigger>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Criar nova lista</DialogTitle>
@@ -94,7 +122,12 @@ export function ShoppingListsView() {
               autoFocus
             />
             <div className="flex gap-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={() => setIsCreateOpen(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setIsCreateOpen(false)}
+              >
                 Cancelar
               </Button>
               <Button type="submit" className="flex-1">
@@ -105,57 +138,62 @@ export function ShoppingListsView() {
         </DialogContent>
       </Dialog>
 
-      {/* My Lists */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Listas Ativas</h2>
-        {activeLists.length === 0 ? (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-              <ShoppingBag className="w-10 h-10 text-muted-foreground/50 mb-2" />
-              <p className="text-sm text-muted-foreground">Nenhuma lista criada</p>
-              <p className="text-xs text-muted-foreground/70">Crie sua primeira lista de compras</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {activeLists.map((list) => (
-              <Card 
-                key={list.id} 
-                className="cursor-pointer hover:bg-accent/50 transition-colors"
-                onClick={() => handleSelectList(list)}
-              >
-                <CardContent className="flex items-center justify-between p-4">
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center shrink-0">
-                      <ShoppingBag className="w-5 h-5 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-foreground truncate">{list.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {list.items.length} {list.items.length === 1 ? 'item' : 'itens'} • 
-                        {' '}{format(new Date(list.updatedAt), "dd 'de' MMM", { locale: ptBR })}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="text-muted-foreground hover:text-destructive"
-                      onClick={(e) => {
-                        void handleDeleteList(list.id, e)
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                    <ChevronRight className="w-5 h-5 text-muted-foreground" />
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
+      {activeLists.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-border bg-card px-4 py-12 text-center">
+          <ShoppingBag className="mx-auto mb-2 h-10 w-10 text-muted-foreground/50" />
+          <p className="text-sm text-muted-foreground">Nenhuma lista criada</p>
+          <p className="text-xs text-muted-foreground/70">
+            Crie sua primeira lista
+          </p>
+        </div>
+      ) : (
+        <div className="soft-shadow overflow-hidden rounded-2xl bg-card">
+          {activeLists.map((list, index) => (
+            <div
+              key={list.id}
+              role="button"
+              tabIndex={0}
+              className={`flex w-full cursor-pointer items-center justify-between px-4 py-3.5 text-left ${index > 0 ? "border-t border-border/70" : ""}`}
+              onClick={() => handleSelectList(list)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ")
+                  handleSelectList(list);
+              }}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <ShoppingBag className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-foreground">
+                    {list.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {list.items.length}{" "}
+                    {list.items.length === 1 ? "item" : "itens"} •{" "}
+                    {format(new Date(list.updatedAt), "dd 'de' MMM", {
+                      locale: ptBR,
+                    })}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={(e) => {
+                    void handleDeleteList(list.id, e);
+                  }}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+                <ChevronRight className="h-5 w-5 text-muted-foreground" />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
-  )
+  );
 }

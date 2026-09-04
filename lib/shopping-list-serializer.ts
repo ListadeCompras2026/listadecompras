@@ -1,5 +1,5 @@
-import type { ShoppingListDocument } from '@/lib/models/shopping-list'
-import type { ShoppingList } from '@/lib/types'
+import type { ShoppingListDocument } from "@/lib/models/shopping-list";
+import type { ShoppingList } from "@/lib/types";
 
 export function toShoppingList(doc: ShoppingListDocument): ShoppingList {
   return {
@@ -14,11 +14,13 @@ export function toShoppingList(doc: ShoppingListDocument): ShoppingList {
       category: item.category,
       addedBy: item.addedBy,
       addedAt: new Date(item.addedAt),
+      unitPrice: item.unitPrice ?? undefined,
+      totalPrice: item.totalPrice ?? undefined,
     })),
     createdBy: doc.createdBy,
     sharedWith: doc.sharedWith,
     createdAt: new Date(doc.createdAt),
     updatedAt: new Date(doc.updatedAt),
     status: doc.status,
-  }
+  };
 }

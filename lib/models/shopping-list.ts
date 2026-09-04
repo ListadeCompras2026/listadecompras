@@ -1,20 +1,22 @@
-import { Schema, model, models, type InferSchemaType } from 'mongoose'
+import { Schema, model, models, type InferSchemaType } from "mongoose";
 
 const shoppingItemSchema = new Schema(
   {
     id: { type: String, required: true },
     name: { type: String, required: true, trim: true },
     quantity: { type: Number, required: true, min: 1, default: 1 },
-    unit: { type: String, required: true, trim: true, default: 'un' },
+    unit: { type: String, required: true, trim: true, default: "un" },
     checked: { type: Boolean, required: true, default: false },
-    category: { type: String, required: true, trim: true, default: 'others' },
+    category: { type: String, required: true, trim: true, default: "others" },
     addedBy: { type: String, required: true },
     addedAt: { type: Date, required: true, default: Date.now },
+    unitPrice: { type: Number, required: false, min: 0 },
+    totalPrice: { type: Number, required: false, min: 0 },
   },
   {
     _id: false,
   }
-)
+);
 
 const shoppingListSchema = new Schema(
   {
@@ -42,8 +44,8 @@ const shoppingListSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ['active', 'completed'],
-      default: 'active',
+      enum: ["active", "completed"],
+      default: "active",
       required: true,
       index: true,
     },
@@ -52,12 +54,14 @@ const shoppingListSchema = new Schema(
     timestamps: true,
     versionKey: false,
   }
-)
+);
 
-shoppingListSchema.index({ createdBy: 1, status: 1 })
-shoppingListSchema.index({ sharedWith: 1, status: 1 })
+shoppingListSchema.index({ createdBy: 1, status: 1 });
+shoppingListSchema.index({ sharedWith: 1, status: 1 });
 
-export type ShoppingListDocument = InferSchemaType<typeof shoppingListSchema> & { _id: string }
+export type ShoppingListDocument = InferSchemaType<
+  typeof shoppingListSchema
+> & { _id: string };
 
 export const ShoppingListModel =
-  models.ShoppingList || model('ShoppingList', shoppingListSchema)
+  models.ShoppingList || model("ShoppingList", shoppingListSchema);
