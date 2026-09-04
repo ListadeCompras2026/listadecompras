@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { connectToDatabase } from "@/lib/mongodb";
 import { getAuthenticatedUser } from "@/lib/session-user";
 import { CreditCardModel } from "@/lib/models/credit-card";
-import { toCreditCard } from "@/lib/credit-card-serializer";
+import { serializeCards, serializeCard } from "@/lib/card-access";
 import { getOrCreateOpenInvoice } from "@/lib/invoice-service";
 import { toCardInvoice } from "@/lib/invoice-serializer";
+import { z } from "zod";
 
 const createCardSchema = z.object({
   name: z.string().trim().min(2).max(80),
@@ -32,13 +32,15 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    const cards = await CreditCardModel.find({ createdBy: authUser.id })
+    const cards = await CreditCardModel.find({
+      $or: [{ createdBy: authUser.id }, { sharedWith: authUser.id }],
+    })
       .sort({ name: 1 })
       .lean();
 
     return NextResponse.json({
       ok: true,
-      cards: cards.map((card) => toCreditCard(card)),
+      cards: await serializeCards(cards, authUser.id),
     });
   } catch {
     return NextResponse.json(
@@ -75,6 +77,7 @@ export async function POST(request: Request) {
       closingDay: parsed.data.closingDay,
       dueDay: parsed.data.dueDay,
       createdBy: authUser.id,
+      sharedWith: [],
     });
 
     const invoiceResult = await getOrCreateOpenInvoice(
@@ -85,7 +88,7 @@ export async function POST(request: Request) {
     return NextResponse.json(
       {
         ok: true,
-        card: toCreditCard(created.toObject()),
+        card: await serializeCard(created.toObject(), authUser.id),
         invoice: invoiceResult
           ? toCardInvoice(invoiceResult.invoice.toObject())
           : null,

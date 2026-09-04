@@ -1,14 +1,11 @@
 import { CardInvoiceModel } from "@/lib/models/invoice";
-import { CreditCardModel } from "@/lib/models/credit-card";
 import { dueDateFor, currentInvoicePeriod } from "@/lib/period";
 import { toCardInvoice } from "@/lib/invoice-serializer";
+import { findAccessibleCard } from "@/lib/card-access";
 import type { CardInvoice } from "@/lib/types";
 
 export async function getOrCreateOpenInvoice(userId: string, cardId: string) {
-  const card = await CreditCardModel.findOne({
-    _id: cardId,
-    createdBy: userId,
-  });
+  const card = await findAccessibleCard(userId, cardId);
   if (!card) return null;
 
   const period = currentInvoicePeriod(card.closingDay);
@@ -30,7 +27,7 @@ export async function getOrCreateOpenInvoice(userId: string, cardId: string) {
     amount: 0,
     status: "open",
     dueDate: dueDateFor(period.year, period.month, card.dueDay),
-    createdBy: userId,
+    createdBy: card.createdBy,
   });
 
   return { card, invoice: created };
@@ -48,6 +45,7 @@ export async function addAmountToOpenInvoice(
   if (result.invoice.status === "paid") {
     result.invoice.status = "open";
     result.invoice.set("paidAt", null);
+    result.invoice.set("paymentMethod", undefined);
   }
   await result.invoice.save();
   return toCardInvoice(result.invoice.toObject());

@@ -15,6 +15,7 @@ import type {
   ParsedReceipt,
   ReceiptMatch,
   TransactionCategory,
+  BankAccount,
 } from "./types";
 import { matchReceiptToList } from "@/lib/nfce/match-items";
 import { getPeriod } from "@/lib/period";
@@ -54,6 +55,7 @@ interface AppState {
   bills: Bill[];
   creditCards: CreditCard[];
   invoices: CardInvoice[];
+  bankAccount: BankAccount | null;
   selectedYear: number;
   selectedMonth: number;
   isExpensesLoading: boolean;
@@ -95,6 +97,16 @@ interface AppState {
     store?: string;
     cardId?: string;
     completedAt?: string;
+    receiptKey?: string;
+    receiptUrl?: string;
+    items?: Array<{
+      name: string;
+      quantity: number;
+      unit: string;
+      category?: string;
+      unitPrice?: number;
+      totalPrice?: number;
+    }>;
   }) => Promise<boolean>;
 
   createBill: (input: {
@@ -125,10 +137,16 @@ interface AppState {
     closingDay: number;
     dueDay: number;
   }) => Promise<CreditCard | null>;
+  shareCreditCard: (cardId: string, email: string) => Promise<boolean>;
+  unshareCreditCard: (cardId: string, userId: string) => Promise<boolean>;
   deleteCreditCard: (cardId: string) => Promise<boolean>;
   updateInvoiceAmount: (invoiceId: string, amount: number) => Promise<boolean>;
-  payInvoice: (invoiceId: string) => Promise<boolean>;
+  payInvoice: (
+    invoiceId: string,
+    paymentMethod?: PaymentMethod
+  ) => Promise<boolean>;
   reopenInvoice: (invoiceId: string) => Promise<boolean>;
+  setBankBalance: (balance: number) => Promise<boolean>;
 
   getListById: (listId: string) => ShoppingList | undefined;
   getMyLists: () => ShoppingList[];
@@ -175,6 +193,7 @@ export const useAppStore = create<AppState>()(
       bills: [],
       creditCards: [],
       invoices: [],
+      bankAccount: null,
       selectedYear: current.year,
       selectedMonth: current.month,
       isExpensesLoading: false,
@@ -227,16 +246,19 @@ export const useAppStore = create<AppState>()(
         });
         try {
           const query = `year=${period.year}&month=${period.month}`;
-          const [billsRes, cardsRes, invoicesRes] = await Promise.all([
+          const [billsRes, cardsRes, invoicesRes, bankRes] = await Promise.all([
             fetch(`/api/bills?${query}`, { cache: "no-store" }),
             fetch("/api/credit-cards", { cache: "no-store" }),
             fetch(`/api/invoices?${query}`, { cache: "no-store" }),
+            fetch("/api/bank-account", { cache: "no-store" }),
           ]);
-          const [billsData, cardsData, invoicesData] = await Promise.all([
-            parseJson(billsRes),
-            parseJson(cardsRes),
-            parseJson(invoicesRes),
-          ]);
+          const [billsData, cardsData, invoicesData, bankData] =
+            await Promise.all([
+              parseJson(billsRes),
+              parseJson(cardsRes),
+              parseJson(invoicesRes),
+              parseJson(bankRes),
+            ]);
           set({
             bills:
               billsData?.ok && Array.isArray(billsData.bills)
@@ -250,6 +272,8 @@ export const useAppStore = create<AppState>()(
               invoicesData?.ok && Array.isArray(invoicesData.invoices)
                 ? invoicesData.invoices
                 : [],
+            bankAccount:
+              bankData?.ok && bankData.account ? bankData.account : null,
             isExpensesLoading: false,
           });
         } catch {
@@ -257,6 +281,7 @@ export const useAppStore = create<AppState>()(
             bills: [],
             creditCards: [],
             invoices: [],
+            bankAccount: null,
             isExpensesLoading: false,
           });
         }
@@ -353,6 +378,7 @@ export const useAppStore = create<AppState>()(
             bills: [],
             creditCards: [],
             invoices: [],
+            bankAccount: null,
           });
         }
       },
@@ -571,6 +597,7 @@ export const useAppStore = create<AppState>()(
                     )
                   : [data.invoice, ...state.invoices]
                 : state.invoices,
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
             return true;
           }
@@ -593,6 +620,9 @@ export const useAppStore = create<AppState>()(
               store: input.store,
               cardId: input.cardId,
               completedAt: input.completedAt,
+              receiptKey: input.receiptKey,
+              receiptUrl: input.receiptUrl,
+              items: input.items,
               source: "standalone",
             }),
           });
@@ -609,6 +639,7 @@ export const useAppStore = create<AppState>()(
                     )
                   : [data.invoice, ...state.invoices]
                 : state.invoices,
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
             return true;
           }
@@ -679,6 +710,7 @@ export const useAppStore = create<AppState>()(
               bills: state.bills.map((bill) =>
                 bill.id === billId ? data.bill : bill
               ),
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
             if (paymentMethod === "credit") {
               await get().loadExpenses();
@@ -704,6 +736,7 @@ export const useAppStore = create<AppState>()(
               bills: state.bills.map((bill) =>
                 bill.id === billId ? data.bill : bill
               ),
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
             return true;
           }
@@ -751,6 +784,49 @@ export const useAppStore = create<AppState>()(
         }
       },
 
+      shareCreditCard: async (cardId, email) => {
+        try {
+          const response = await fetch(`/api/credit-cards/${cardId}/share`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email }),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.card) {
+            set((state) => ({
+              creditCards: state.creditCards.map((card) =>
+                card.id === cardId ? data.card : card
+              ),
+            }));
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
+      unshareCreditCard: async (cardId, userId) => {
+        try {
+          const response = await fetch(
+            `/api/credit-cards/${cardId}/share?userId=${encodeURIComponent(userId)}`,
+            { method: "DELETE" }
+          );
+          const data = await parseJson(response);
+          if (data?.ok && data?.card) {
+            set((state) => ({
+              creditCards: state.creditCards.map((card) =>
+                card.id === cardId ? data.card : card
+              ),
+            }));
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
       deleteCreditCard: async (cardId) => {
         try {
           const response = await fetch(`/api/credit-cards/${cardId}`, {
@@ -791,12 +867,15 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      payInvoice: async (invoiceId) => {
+      payInvoice: async (invoiceId, paymentMethod) => {
         try {
           const response = await fetch(`/api/invoices/${invoiceId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "paid" }),
+            body: JSON.stringify({
+              status: "paid",
+              paymentMethod,
+            }),
           });
           const data = await parseJson(response);
           if (data?.ok && data?.invoice) {
@@ -804,6 +883,7 @@ export const useAppStore = create<AppState>()(
               invoices: state.invoices.map((invoice) =>
                 invoice.id === invoiceId ? data.invoice : invoice
               ),
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
             return true;
           }
@@ -826,7 +906,26 @@ export const useAppStore = create<AppState>()(
               invoices: state.invoices.map((invoice) =>
                 invoice.id === invoiceId ? data.invoice : invoice
               ),
+              bankAccount: data.bankAccount ?? state.bankAccount,
             }));
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
+      setBankBalance: async (balance) => {
+        try {
+          const response = await fetch("/api/bank-account", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ balance }),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.account) {
+            set({ bankAccount: data.account });
             return true;
           }
           return false;

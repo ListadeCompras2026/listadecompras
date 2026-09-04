@@ -11,6 +11,7 @@ export function toPurchase(doc: PurchaseDocument): Purchase {
     store: doc.store ?? undefined,
     completedAt: new Date(doc.completedAt),
     completedBy: doc.completedBy,
+    completedByName: doc.completedByName ?? undefined,
     items: doc.items.map((item) => ({
       id: item.id,
       name: item.name,

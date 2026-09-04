@@ -58,6 +58,11 @@ const purchaseSchema = new Schema(
       required: true,
       index: true,
     },
+    completedByName: {
+      type: String,
+      required: false,
+      trim: true,
+    },
     items: {
       type: [purchaseItemSchema],
       required: true,
@@ -104,5 +109,8 @@ export type PurchaseDocument = InferSchemaType<typeof purchaseSchema> & {
   _id: string;
 };
 
-export const PurchaseModel =
-  models.Purchase || model("Purchase", purchaseSchema);
+if (models.Purchase) {
+  delete models.Purchase;
+}
+
+export const PurchaseModel = model("Purchase", purchaseSchema);

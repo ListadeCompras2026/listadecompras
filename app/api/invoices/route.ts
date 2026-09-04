@@ -6,6 +6,7 @@ import { CardInvoiceModel } from "@/lib/models/invoice";
 import { CreditCardModel } from "@/lib/models/credit-card";
 import { toCardInvoice } from "@/lib/invoice-serializer";
 import { dueDateFor, getPeriod } from "@/lib/period";
+import { accessibleCardsFilter } from "@/lib/card-access";
 
 const createInvoiceSchema = z.object({
   cardId: z.string().min(1),
@@ -34,7 +35,9 @@ export async function GET(request: Request) {
 
     await connectToDatabase();
 
-    const cards = await CreditCardModel.find({ createdBy: authUser.id }).lean();
+    const cards = await CreditCardModel.find(
+      accessibleCardsFilter(authUser.id)
+    ).lean();
     for (const card of cards) {
       await CardInvoiceModel.findOneAndUpdate(
         { cardId: String(card._id), year, month },
@@ -47,7 +50,7 @@ export async function GET(request: Request) {
             amount: 0,
             status: "open",
             dueDate: dueDateFor(year, month, card.dueDay),
-            createdBy: authUser.id,
+            createdBy: card.createdBy,
           },
         },
         { upsert: true }
@@ -55,7 +58,7 @@ export async function GET(request: Request) {
     }
 
     const invoices = await CardInvoiceModel.find({
-      createdBy: authUser.id,
+      cardId: { $in: cards.map((card) => String(card._id)) },
       year,
       month,
     })
@@ -101,7 +104,7 @@ export async function POST(request: Request) {
 
     const card = await CreditCardModel.findOne({
       _id: parsed.data.cardId,
-      createdBy: authUser.id,
+      ...accessibleCardsFilter(authUser.id),
     });
     if (!card) {
       return NextResponse.json(
@@ -126,7 +129,7 @@ export async function POST(request: Request) {
           status: "open",
           dueDate: dueDateFor(year, month, card.dueDay),
           notes: parsed.data.notes,
-          createdBy: authUser.id,
+          createdBy: card.createdBy,
         },
       },
       { new: true, upsert: true }

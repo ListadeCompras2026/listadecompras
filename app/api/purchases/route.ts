@@ -4,9 +4,13 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { getAuthenticatedUser } from "@/lib/session-user";
 import { PurchaseModel } from "@/lib/models/purchase";
 import { ShoppingListModel } from "@/lib/models/shopping-list";
+import { CreditCardModel } from "@/lib/models/credit-card";
 import { toPurchase } from "@/lib/purchase-serializer";
 import { toShoppingList } from "@/lib/shopping-list-serializer";
 import { addAmountToOpenInvoice } from "@/lib/invoice-service";
+import { accessibleCardsFilter } from "@/lib/card-access";
+import { applyBankIfNeeded } from "@/lib/bank-account-service";
+import { UserModel } from "@/lib/models/user";
 
 const purchaseItemSchema = z.object({
   listItemId: z.string().optional(),
@@ -58,13 +62,50 @@ export async function GET() {
 
     await connectToDatabase();
 
-    const purchases = await PurchaseModel.find({})
+    const cards = await CreditCardModel.find(accessibleCardsFilter(authUser.id))
+      .select("_id")
+      .lean();
+    const cardIds = cards.map((card) => String(card._id));
+
+    const purchases = await PurchaseModel.find({
+      $or: [
+        { completedBy: authUser.id },
+        ...(cardIds.length > 0 ? [{ cardId: { $in: cardIds } }] : []),
+      ],
+    })
       .sort({ completedAt: -1 })
       .lean();
 
+    const missingNameIds = [
+      ...new Set(
+        purchases
+          .filter(
+            (purchase) => !purchase.completedByName && purchase.completedBy
+          )
+          .map((purchase) => purchase.completedBy)
+      ),
+    ];
+    const nameById = new Map<string, string>();
+    if (missingNameIds.length > 0) {
+      const users = await UserModel.find({ _id: { $in: missingNameIds } })
+        .select("name")
+        .lean();
+      for (const user of users) {
+        nameById.set(String(user._id), user.name);
+      }
+    }
+
     return NextResponse.json({
       ok: true,
-      purchases: purchases.map((purchase) => toPurchase(purchase)),
+      purchases: purchases.map((purchase) =>
+        toPurchase({
+          ...purchase,
+          completedByName:
+            purchase.completedByName ||
+            nameById.get(purchase.completedBy) ||
+            undefined,
+        })
+      ),
     });
   } catch {
     return NextResponse.json(
@@ -96,6 +137,22 @@ export async function POST(request: Request) {
 
     await connectToDatabase();
 
+    const mapItems = (
+      items: z.infer<typeof purchaseItemSchema>[] | undefined
+    ) =>
+      (items ?? []).map((item, index) => ({
+        id: item.listItemId || `receipt-${index}`,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        checked: true,
+        category: item.category || "others",
+        addedBy: authUser.id,
+        addedAt: new Date(),
+        unitPrice: item.unitPrice,
+        totalPrice: item.totalPrice,
+      }));
+
     if (!parsed.data.listId) {
       const completedAt = parsed.data.completedAt
         ? new Date(`${parsed.data.completedAt}T12:00:00`)
@@ -111,7 +168,10 @@ export async function POST(request: Request) {
           ? new Date()
           : completedAt,
         completedBy: authUser.id,
-        items: [],
+        completedByName: authUser.name,
+        items: mapItems(parsed.data.items),
+        receiptKey: parsed.data.receiptKey,
+        receiptUrl: parsed.data.receiptUrl,
         cardId: parsed.data.cardId,
         source: "standalone",
         category: parsed.data.category || "others",
@@ -126,11 +186,18 @@ export async function POST(request: Request) {
         );
       }
 
+      const bankAccount = await applyBankIfNeeded(
+        authUser.id,
+        parsed.data.paymentMethod,
+        parsed.data.totalAmount
+      );
+
       return NextResponse.json(
         {
           ok: true,
           purchase: toPurchase(purchase.toObject()),
           invoice,
+          bankAccount,
         },
         { status: 201 }
       );
@@ -182,18 +249,7 @@ export async function POST(request: Request) {
     }
 
     const purchasedItems = parsed.data.items?.length
-      ? parsed.data.items.map((item, index) => ({
-          id: item.listItemId || `receipt-${index}`,
-          name: item.name,
-          quantity: item.quantity,
-          unit: item.unit,
-          checked: true,
-          category: item.category || "others",
-          addedBy: authUser.id,
-          addedAt: new Date(),
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-        }))
+      ? mapItems(parsed.data.items)
       : listItems.filter((item) => item.checked);
 
     if (purchasedItems.length === 0) {
@@ -220,6 +276,7 @@ export async function POST(request: Request) {
       store: parsed.data.store,
       completedAt: new Date(),
       completedBy: authUser.id,
+      completedByName: authUser.name,
       items: purchasedItems,
       receiptKey: parsed.data.receiptKey,
       receiptUrl: parsed.data.receiptUrl,
@@ -239,12 +296,19 @@ export async function POST(request: Request) {
       );
     }
 
+    const bankAccount = await applyBankIfNeeded(
+      authUser.id,
+      parsed.data.paymentMethod,
+      parsed.data.totalAmount
+    );
+
     return NextResponse.json(
       {
         ok: true,
         purchase: toPurchase(purchase.toObject()),
         list: toShoppingList(list.toObject()),
         invoice,
+        bankAccount,
       },
       { status: 201 }
     );

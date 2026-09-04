@@ -22,6 +22,19 @@ type BarcodeDetectorLike = {
   detect: (source: ImageBitmapSource) => Promise<Array<{ rawValue: string }>>;
 };
 
+type JsQrFn = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  options?: { inversionAttempts?: string }
+) => { data: string } | null;
+
+declare global {
+  interface Window {
+    jsQR?: JsQrFn;
+  }
+}
+
 function getDetector(): BarcodeDetectorLike | null {
   const Detector = (
     window as Window & {
@@ -31,7 +44,67 @@ function getDetector(): BarcodeDetectorLike | null {
     }
   ).BarcodeDetector;
   if (!Detector) return null;
-  return new Detector({ formats: ["qr_code"] });
+  try {
+    return new Detector({ formats: ["qr_code"] });
+  } catch {
+    return null;
+  }
+}
+
+async function requestCamera(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("no-media");
+  }
+
+  const attempts: MediaStreamConstraints[] = [
+    { video: { facingMode: { ideal: "environment" } }, audio: false },
+    { video: { facingMode: "environment" }, audio: false },
+    { video: true, audio: false },
+  ];
+
+  let lastError: unknown;
+  for (const constraints of attempts) {
+    try {
+      return await navigator.mediaDevices.getUserMedia(constraints);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error("camera-denied");
+}
+
+function loadJsQr(): Promise<JsQrFn | null> {
+  if (typeof window === "undefined") return Promise.resolve(null);
+  if (window.jsQR) return Promise.resolve(window.jsQR);
+
+  return new Promise((resolve) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      'script[data-jsqr="true"]'
+    );
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.jsQR ?? null), {
+        once: true,
+      });
+      existing.addEventListener("error", () => resolve(null), { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "/vendor/jsqr.min.js";
+    script.async = true;
+    script.dataset.jsqr = "true";
+    script.onload = () => resolve(window.jsQR ?? null);
+    script.onerror = () => resolve(null);
+    document.head.appendChild(script);
+  });
+}
+
+function decodeFromImageData(imageData: ImageData, jsQR: JsQrFn | null) {
+  if (!jsQR) return null;
+  const result = jsQR(imageData.data, imageData.width, imageData.height, {
+    inversionAttempts: "attemptBoth",
+  });
+  return result?.data?.trim() || null;
 }
 
 export function QrScannerDialog({
@@ -42,86 +115,166 @@ export function QrScannerDialog({
   const [manualValue, setManualValue] = useState("");
   const [error, setError] = useState("");
   const [cameraReady, setCameraReady] = useState(false);
+  const [starting, setStarting] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameRef = useRef<number>(0);
+  const cancelledRef = useRef(false);
   const onScanRef = useRef(onScan);
   onScanRef.current = onScan;
 
-  useEffect(() => {
-    if (!open) return;
+  const stopStream = () => {
+    if (frameRef.current) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = 0;
+    }
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    const video = videoRef.current;
+    if (video) {
+      video.srcObject = null;
+    }
+  };
 
-    let cancelled = false;
+  const startCamera = async () => {
+    cancelledRef.current = false;
+    setError("");
+    setStarting(true);
 
-    const stopStream = () => {
-      if (frameRef.current) cancelAnimationFrame(frameRef.current);
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    };
+    try {
+      const [stream, jsQR] = await Promise.all([requestCamera(), loadJsQr()]);
+      if (cancelledRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      streamRef.current = stream;
 
-    const start = async () => {
-      setError("");
-      setCameraReady(false);
-      const detector = getDetector();
-      if (!detector) {
-        setError(
-          "Este navegador nao le QR pela camera. Tire uma foto do cupom ou cole o link."
-        );
+      let video = videoRef.current;
+      for (let i = 0; i < 40 && !video && !cancelledRef.current; i += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 50));
+        video = videoRef.current;
+      }
+      if (!video || cancelledRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        if (!cancelledRef.current) {
+          setError("Nao foi possivel iniciar o preview da camera.");
+        }
         return;
       }
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" } },
-          audio: false,
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        streamRef.current = stream;
-        const video = videoRef.current;
-        if (!video) return;
-        video.srcObject = stream;
-        await video.play();
-        setCameraReady(true);
+      video.setAttribute("playsinline", "true");
+      video.setAttribute("webkit-playsinline", "true");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await video.play();
+      if (cancelledRef.current) {
+        stopStream();
+        return;
+      }
+      setCameraReady(true);
 
-        const tick = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            if (videoRef.current.readyState >= 2) {
-              const codes = await detector.detect(videoRef.current);
-              const value = codes[0]?.rawValue;
-              if (value) {
-                stopStream();
-                onScanRef.current(value);
-                return;
-              }
-            }
-          } catch {
-            // Keep scanning.
-          }
+      const detector = getDetector();
+      const canvas = canvasRef.current;
+      const context = canvas?.getContext("2d", { willReadFrequently: true });
+
+      const tick = async () => {
+        if (cancelledRef.current) return;
+        const current = videoRef.current;
+        if (!current || current.readyState < 2) {
           frameRef.current = requestAnimationFrame(() => {
             void tick();
           });
-        };
-
-        void tick();
-      } catch {
-        if (!cancelled) {
-          setError(
-            "Nao foi possivel abrir a camera. Tire uma foto do QR ou cole o link."
-          );
+          return;
         }
-      }
-    };
 
-    void start();
+        try {
+          if (detector) {
+            const codes = await detector.detect(current);
+            const value = codes[0]?.rawValue?.trim();
+            if (value) {
+              cancelledRef.current = true;
+              stopStream();
+              onScanRef.current(value);
+              return;
+            }
+          }
+
+          if (canvas && context && jsQR) {
+            const maxWidth = 480;
+            const scale =
+              current.videoWidth > maxWidth ? maxWidth / current.videoWidth : 1;
+            const width = Math.max(1, Math.floor(current.videoWidth * scale));
+            const height = Math.max(1, Math.floor(current.videoHeight * scale));
+            if (canvas.width !== width || canvas.height !== height) {
+              canvas.width = width;
+              canvas.height = height;
+            }
+            context.drawImage(current, 0, 0, width, height);
+            const imageData = context.getImageData(0, 0, width, height);
+            const value = decodeFromImageData(imageData, jsQR);
+            if (value) {
+              cancelledRef.current = true;
+              stopStream();
+              onScanRef.current(value);
+              return;
+            }
+          }
+        } catch {
+          // Keep scanning.
+        }
+
+        frameRef.current = requestAnimationFrame(() => {
+          void tick();
+        });
+      };
+
+      void tick();
+    } catch (caught) {
+      if (cancelledRef.current) return;
+      const name =
+        caught && typeof caught === "object" && "name" in caught
+          ? String(caught.name)
+          : "";
+      if (name === "NotAllowedError") {
+        setError(
+          "Permissao da camera negada. Autorize o acesso e toque em Abrir camera."
+        );
+      } else if (name === "NotFoundError") {
+        setError("Nenhuma camera foi encontrada neste aparelho.");
+      } else {
+        setError(
+          "Nao foi possivel abrir a camera. Tire uma foto do QR ou cole o link."
+        );
+      }
+    } finally {
+      if (!cancelledRef.current) setStarting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) {
+      cancelledRef.current = true;
+      stopStream();
+      setManualValue("");
+      setError("");
+      setCameraReady(false);
+      setStarting(false);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void startCamera();
+    }, 250);
 
     return () => {
-      cancelled = true;
+      cancelledRef.current = true;
+      window.clearTimeout(timer);
       stopStream();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- start only when dialog opens
   }, [open]);
 
   const handleManualSubmit = (event: React.FormEvent) => {
@@ -130,27 +283,48 @@ export function QrScannerDialog({
       setError("Cole o conteudo do QR Code do cupom");
       return;
     }
+    cancelledRef.current = true;
+    stopStream();
     onScan(manualValue.trim());
   };
 
   const handleImage = async (file: File | undefined) => {
     if (!file) return;
-    const detector = getDetector();
-    if (!detector) {
-      setError(
-        "Nao foi possivel ler a imagem neste navegador. Cole o link do cupom."
-      );
-      return;
-    }
     try {
+      const jsQR = await loadJsQr();
       const bitmap = await createImageBitmap(file);
-      const codes = await detector.detect(bitmap);
+      const canvas = document.createElement("canvas");
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        bitmap.close();
+        setError("Nao foi possivel ler a foto do cupom");
+        return;
+      }
+      context.drawImage(bitmap, 0, 0);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
       bitmap.close();
-      const value = codes[0]?.rawValue;
+
+      const detector = getDetector();
+      if (detector) {
+        const codes = await detector.detect(canvas);
+        const value = codes[0]?.rawValue?.trim();
+        if (value) {
+          cancelledRef.current = true;
+          stopStream();
+          onScan(value);
+          return;
+        }
+      }
+
+      const value = decodeFromImageData(imageData, jsQR);
       if (!value) {
         setError("Nao achei QR Code na foto. Tente aproximar o cupom.");
         return;
       }
+      cancelledRef.current = true;
+      stopStream();
       onScan(value);
     } catch {
       setError("Nao foi possivel ler a foto do cupom");
@@ -159,7 +333,10 @@ export function QrScannerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent
+        className="sm:max-w-md"
+        onOpenAutoFocus={(event) => event.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>Ler QR do cupom</DialogTitle>
         </DialogHeader>
@@ -172,13 +349,27 @@ export function QrScannerDialog({
               muted
               autoPlay
             />
+            <canvas ref={canvasRef} className="hidden" />
           </div>
           <p className="text-xs text-muted-foreground">
             {cameraReady
               ? "Aponte para o QR Code impresso no cupom fiscal."
-              : "Aguardando camera..."}
+              : starting
+                ? "Abrindo camera..."
+                : "Toque em Abrir camera se o preview nao aparecer."}
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
+          {!cameraReady && (
+            <Button
+              type="button"
+              className="w-full gap-2"
+              onClick={() => void startCamera()}
+              disabled={starting}
+            >
+              <Camera className="h-4 w-4" />
+              {starting ? "Abrindo..." : "Abrir camera"}
+            </Button>
+          )}
           <Button asChild variant="outline" className="w-full gap-2">
             <label>
               <ImagePlus className="h-4 w-4" />
@@ -207,7 +398,6 @@ export function QrScannerDialog({
               placeholder="https://... ou chave de 44 digitos"
             />
             <Button type="submit" variant="outline" className="w-full gap-2">
-              <Camera className="h-4 w-4" />
               Usar este cupom
             </Button>
           </form>

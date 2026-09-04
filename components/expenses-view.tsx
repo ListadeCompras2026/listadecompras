@@ -28,6 +28,8 @@ import {
   Pencil,
   Settings,
   ShoppingBag,
+  Share2,
+  Landmark,
 } from "lucide-react";
 import { toast } from "sonner";
 import { addMonths, format, startOfMonth, subMonths } from "date-fns";
@@ -40,8 +42,10 @@ import type {
   BillCategory,
   CardInvoice,
   PaymentMethod,
+  Purchase,
 } from "@/lib/types";
 import { billCategoryLabels, paymentMethodLabels } from "@/lib/types";
+import { currentInvoicePeriod } from "@/lib/period";
 import type { QuickAction } from "./main-app";
 
 interface ExpensesViewProps {
@@ -60,6 +64,9 @@ export function ExpensesView({
   const bills = useAppStore((state) => state.bills);
   const creditCards = useAppStore((state) => state.creditCards);
   const invoices = useAppStore((state) => state.invoices);
+  const purchases = useAppStore((state) => state.purchases);
+  const bankAccount = useAppStore((state) => state.bankAccount);
+  const currentUser = useAppStore((state) => state.currentUser);
   const selectedYear = useAppStore((state) => state.selectedYear);
   const selectedMonth = useAppStore((state) => state.selectedMonth);
   const isExpensesLoading = useAppStore((state) => state.isExpensesLoading);
@@ -70,10 +77,13 @@ export function ExpensesView({
   const reopenBill = useAppStore((state) => state.reopenBill);
   const deleteBill = useAppStore((state) => state.deleteBill);
   const createCreditCard = useAppStore((state) => state.createCreditCard);
+  const shareCreditCard = useAppStore((state) => state.shareCreditCard);
+  const unshareCreditCard = useAppStore((state) => state.unshareCreditCard);
   const deleteCreditCard = useAppStore((state) => state.deleteCreditCard);
   const updateInvoiceAmount = useAppStore((state) => state.updateInvoiceAmount);
   const payInvoice = useAppStore((state) => state.payInvoice);
   const reopenInvoice = useAppStore((state) => state.reopenInvoice);
+  const setBankBalance = useAppStore((state) => state.setBankBalance);
   const getMonthlyReport = useAppStore((state) => state.getMonthlyReport);
 
   const selectedDate = startOfMonth(new Date(selectedYear, selectedMonth, 1));
@@ -102,9 +112,17 @@ export function ExpensesView({
   const [cardClosingDay, setCardClosingDay] = useState("10");
   const [cardDueDay, setCardDueDay] = useState("17");
   const [invoiceAmount, setInvoiceAmount] = useState("");
+  const [sharingCardId, setSharingCardId] = useState<string | null>(null);
+  const [shareEmail, setShareEmail] = useState("");
+  const [payingInvoice, setPayingInvoice] = useState<CardInvoice | null>(null);
+  const [invoicePayMethod, setInvoicePayMethod] =
+    useState<PaymentMethod>("pix");
+  const [isBankOpen, setIsBankOpen] = useState(false);
+  const [bankAmount, setBankAmount] = useState("");
 
   useEffect(() => {
     void loadExpenses(selectedYear, selectedMonth);
+    void useAppStore.getState().loadPurchases();
   }, [loadExpenses, selectedMonth, selectedYear]);
 
   useEffect(() => {
@@ -132,6 +150,27 @@ export function ExpensesView({
     .filter((invoice) => invoice.status === "open")
     .reduce((sum, invoice) => sum + invoice.amount, 0);
   const firstName = userName.split(" ")[0];
+  const sharingCard = creditCards.find((card) => card.id === sharingCardId);
+
+  const invoiceCharges = (invoice: CardInvoice | null) => {
+    if (!invoice) return [];
+    const card = creditCards.find((entry) => entry.id === invoice.cardId);
+    return purchases.filter((purchase) => {
+      if (purchase.cardId !== invoice.cardId) return false;
+      if (purchase.paymentMethod !== "credit") return false;
+      if (card) {
+        const period = currentInvoicePeriod(
+          card.closingDay,
+          new Date(purchase.completedAt)
+        );
+        return period.year === invoice.year && period.month === invoice.month;
+      }
+      const date = new Date(purchase.completedAt);
+      return (
+        date.getFullYear() === invoice.year && date.getMonth() === invoice.month
+      );
+    });
+  };
 
   const resetBillForm = () => {
     setBillName("");
@@ -299,6 +338,38 @@ export function ExpensesView({
           </div>
         </div>
 
+        <button
+          type="button"
+          onClick={() => {
+            setBankAmount(
+              bankAccount?.configured
+                ? String(bankAccount.balance).replace(".", ",")
+                : ""
+            );
+            setIsBankOpen(true);
+          }}
+          className="soft-shadow flex w-full items-center gap-3 rounded-2xl bg-card p-4 text-left"
+        >
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+            <Landmark className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground">
+              Saldo na conta
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {bankAccount?.configured
+                ? "Débito e PIX abatem deste valor"
+                : "Informe o saldo para conferir com o banco"}
+            </p>
+          </div>
+          <p className="text-lg font-bold text-foreground">
+            {bankAccount?.configured
+              ? formatCurrency(bankAccount.balance)
+              : "—"}
+          </p>
+        </button>
+
         <section className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-foreground">
@@ -328,6 +399,7 @@ export function ExpensesView({
                 >
                   <p className="text-xs text-white/70">
                     {card.lastDigits ? `•••• ${card.lastDigits}` : "Cartão"}
+                    {card.isShared ? " • Compartilhado" : ""}
                   </p>
                   <p className="mt-1 text-base font-semibold">{card.name}</p>
                   <p className="mt-4 text-2xl font-bold">
@@ -340,20 +412,23 @@ export function ExpensesView({
                     </span>
                   </div>
                   {invoice ? (
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2">
                       <Button
                         size="sm"
                         variant="secondary"
                         className="h-7 bg-white/20 text-white hover:bg-white/30"
                         onClick={() => openEditInvoice(invoice)}
                       >
-                        Editar
+                        Fatura
                       </Button>
                       {invoice.status === "open" ? (
                         <Button
                           size="sm"
                           className="h-7 bg-white text-foreground hover:bg-white/90"
-                          onClick={() => void payInvoice(invoice.id)}
+                          onClick={() => {
+                            setPayingInvoice(invoice);
+                            setInvoicePayMethod("pix");
+                          }}
                         >
                           Pagar
                         </Button>
@@ -367,20 +442,36 @@ export function ExpensesView({
                           Reabrir
                         </Button>
                       )}
+                      {card.isOwner && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="h-7 bg-white/20 text-white hover:bg-white/30"
+                          onClick={() => {
+                            setSharingCardId(card.id);
+                            setShareEmail("");
+                          }}
+                        >
+                          <Share2 className="mr-1 h-3.5 w-3.5" />
+                          Compartilhar
+                        </Button>
+                      )}
                     </div>
                   ) : (
                     <p className="mt-3 text-xs text-white/70">
                       Sem fatura neste mês
                     </p>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => void deleteCreditCard(card.id)}
-                    className="absolute right-3 top-3 text-white/60 hover:text-white"
-                    aria-label={`Excluir ${card.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {card.isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => void deleteCreditCard(card.id)}
+                      className="absolute right-3 top-3 text-white/60 hover:text-white"
+                      aria-label={`Excluir ${card.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </article>
               );
             })}
@@ -728,13 +819,17 @@ export function ExpensesView({
         open={!!editingInvoice}
         onOpenChange={(open) => !open && setEditingInvoice(null)}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>
-              Atualizar fatura {editingInvoice?.cardName}
-            </DialogTitle>
+            <DialogTitle>Fatura {editingInvoice?.cardName}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSaveInvoice} className="space-y-4">
+            {editingInvoice && (
+              <InvoiceBreakdown
+                charges={invoiceCharges(editingInvoice)}
+                currentUserName={currentUser?.name}
+              />
+            )}
             <div className="space-y-2">
               <Label>Valor atual da fatura</Label>
               <Input
@@ -744,8 +839,8 @@ export function ExpensesView({
                 autoFocus
               />
               <p className="text-xs text-muted-foreground">
-                Va editando conforme o banco atualiza. Compras no credito tambem
-                somam neste valor.
+                Compras no crédito somam neste valor. No cartão compartilhado,
+                cada lançamento mostra quem gastou.
               </p>
             </div>
             <Button type="submit" className="w-full">
@@ -754,6 +849,236 @@ export function ExpensesView({
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={!!sharingCard}
+        onOpenChange={(open) => !open && setSharingCardId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Compartilhar {sharingCard?.name}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              if (!sharingCard || !shareEmail.trim()) {
+                toast.error("Informe o e-mail da pessoa");
+                return;
+              }
+              const success = await shareCreditCard(
+                sharingCard.id,
+                shareEmail.trim()
+              );
+              toast[success ? "success" : "error"](
+                success
+                  ? "Cartão compartilhado. A outra pessoa já vê a fatura e pode lançar."
+                  : "Não foi possível compartilhar. Confira se a pessoa já tem cadastro."
+              );
+              if (success) setShareEmail("");
+            }}
+          >
+            <div className="space-y-2">
+              <Label>E-mail de quem vai usar o cartão</Label>
+              <Input
+                type="email"
+                value={shareEmail}
+                onChange={(event) => setShareEmail(event.target.value)}
+                placeholder="pessoa@email.com"
+              />
+            </div>
+            {sharingCard && sharingCard.members.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-muted-foreground">
+                  Quem tem acesso
+                </p>
+                <div className="space-y-2">
+                  {sharingCard.members.map((member) => (
+                    <div
+                      key={member.id}
+                      className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
+                    >
+                      <span>
+                        {member.name}
+                        {member.id === sharingCard.createdBy ? " (dono)" : ""}
+                      </span>
+                      {member.id !== sharingCard.createdBy && (
+                        <button
+                          type="button"
+                          className="text-xs text-destructive"
+                          onClick={async () => {
+                            const success = await unshareCreditCard(
+                              sharingCard.id,
+                              member.id
+                            );
+                            toast[success ? "success" : "error"](
+                              success
+                                ? "Acesso removido"
+                                : "Não foi possível remover"
+                            );
+                          }}
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <Button type="submit" className="w-full">
+              Compartilhar
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={!!payingInvoice}
+        onOpenChange={(open) => !open && setPayingInvoice(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Pagar fatura {payingInvoice?.cardName}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              {payingInvoice ? formatCurrency(payingInvoice.amount) : ""}
+            </p>
+            {payingInvoice && (
+              <InvoiceBreakdown
+                charges={invoiceCharges(payingInvoice)}
+                currentUserName={currentUser?.name}
+              />
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              {(["pix", "debit", "cash"] as PaymentMethod[]).map((method) => (
+                <Button
+                  key={method}
+                  type="button"
+                  variant={invoicePayMethod === method ? "default" : "outline"}
+                  onClick={() => setInvoicePayMethod(method)}
+                >
+                  {paymentMethodLabels[method]}
+                </Button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              PIX e débito abatem o saldo da conta, se você tiver informado.
+            </p>
+            <Button
+              className="w-full"
+              onClick={async () => {
+                if (!payingInvoice) return;
+                const success = await payInvoice(
+                  payingInvoice.id,
+                  invoicePayMethod
+                );
+                toast[success ? "success" : "error"](
+                  success ? "Fatura paga" : "Não foi possível pagar"
+                );
+                setPayingInvoice(null);
+              }}
+            >
+              Confirmar pagamento
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isBankOpen} onOpenChange={setIsBankOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Saldo da conta</DialogTitle>
+          </DialogHeader>
+          <form
+            className="space-y-4"
+            onSubmit={async (event) => {
+              event.preventDefault();
+              const amount = parseMoney(bankAmount);
+              if (!Number.isFinite(amount)) {
+                toast.error("Informe um valor válido");
+                return;
+              }
+              const success = await setBankBalance(amount);
+              toast[success ? "success" : "error"](
+                success
+                  ? "Saldo atualizado. Confira com o banco quando quiser."
+                  : "Não foi possível salvar o saldo"
+              );
+              if (success) setIsBankOpen(false);
+            }}
+          >
+            <div className="space-y-2">
+              <Label>Quanto tem na conta agora</Label>
+              <Input
+                inputMode="decimal"
+                value={bankAmount}
+                onChange={(event) => setBankAmount(event.target.value)}
+                placeholder="0,00"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Lançamentos no débito ou PIX já descontam daqui. Ajuste o valor
+                se o banco estiver diferente.
+              </p>
+            </div>
+            <Button type="submit" className="w-full">
+              Salvar saldo
+            </Button>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function InvoiceBreakdown({
+  charges,
+  currentUserName,
+}: {
+  charges: Purchase[];
+  currentUserName?: string;
+}) {
+  if (charges.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Ainda não há lançamentos nesta fatura.
+      </p>
+    );
+  }
+
+  const byPerson = charges.reduce<Record<string, number>>((acc, purchase) => {
+    const name = purchase.completedByName || currentUserName || "Lançamento";
+    acc[name] = (acc[name] || 0) + purchase.totalAmount;
+    return acc;
+  }, {});
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border p-3">
+      <p className="text-xs font-medium text-muted-foreground">
+        Por quem lançou
+      </p>
+      {Object.entries(byPerson).map(([name, total]) => (
+        <div key={name} className="flex items-center justify-between text-sm">
+          <span>{name}</span>
+          <span className="font-medium">{formatCurrency(total)}</span>
+        </div>
+      ))}
+      <div className="max-h-40 space-y-1 overflow-auto border-t border-border pt-2">
+        {charges.map((purchase) => (
+          <div
+            key={purchase.id}
+            className="flex items-center justify-between text-xs text-muted-foreground"
+          >
+            <span className="truncate pr-2">
+              {purchase.completedByName || currentUserName} •{" "}
+              {purchase.store || purchase.listName}
+            </span>
+            <span>{formatCurrency(purchase.totalAmount)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

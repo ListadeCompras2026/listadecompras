@@ -81,6 +81,7 @@ export interface Purchase {
   store?: string;
   completedAt: Date;
   completedBy: string;
+  completedByName?: string;
   items: ShoppingItem[];
   receiptKey?: string;
   receiptUrl?: string;
@@ -154,6 +155,11 @@ export interface Bill {
   updatedAt: Date;
 }
 
+export interface CreditCardMember {
+  id: string;
+  name: string;
+}
+
 export interface CreditCard {
   id: string;
   name: string;
@@ -161,6 +167,10 @@ export interface CreditCard {
   closingDay: number;
   dueDay: number;
   createdBy: string;
+  sharedWith: string[];
+  members: CreditCardMember[];
+  isOwner: boolean;
+  isShared: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -177,9 +187,17 @@ export interface CardInvoice {
   status: InvoiceStatus;
   dueDate: Date;
   paidAt?: Date;
+  paymentMethod?: PaymentMethod;
   notes?: string;
   createdBy: string;
   createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BankAccount {
+  id: string;
+  balance: number;
+  configured: boolean;
   updatedAt: Date;
 }
 

@@ -45,6 +45,11 @@ const cardInvoiceSchema = new Schema(
       type: Date,
       required: false,
     },
+    paymentMethod: {
+      type: String,
+      enum: ["credit", "debit", "pix", "cash", "meal"],
+      required: false,
+    },
     notes: {
       type: String,
       trim: true,
@@ -70,5 +75,8 @@ export type CardInvoiceDocument = InferSchemaType<typeof cardInvoiceSchema> & {
   _id: string;
 };
 
-export const CardInvoiceModel =
-  models.CardInvoice || model("CardInvoice", cardInvoiceSchema);
+if (models.CardInvoice) {
+  delete models.CardInvoice;
+}
+
+export const CardInvoiceModel = model("CardInvoice", cardInvoiceSchema);

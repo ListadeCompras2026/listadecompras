@@ -168,6 +168,9 @@ export function HistoryView({
                         {isStandalone
                           ? transactionCategoryLabels[category]
                           : paymentMethodLabels[purchase.paymentMethod]}
+                        {purchase.completedByName
+                          ? ` • ${purchase.completedByName}`
+                          : ""}
                       </p>
                     </div>
                     <span className="shrink-0 font-semibold text-expense">
@@ -242,6 +245,11 @@ export function HistoryView({
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <Store className="w-4 h-4" />
                     <span>{selectedPurchase.store}</span>
+                  </div>
+                )}
+                {selectedPurchase.completedByName && (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span>Lançado por {selectedPurchase.completedByName}</span>
                   </div>
                 )}
               </div>

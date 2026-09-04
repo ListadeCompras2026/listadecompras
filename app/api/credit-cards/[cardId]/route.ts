@@ -4,7 +4,7 @@ import { connectToDatabase } from "@/lib/mongodb";
 import { getAuthenticatedUser } from "@/lib/session-user";
 import { CreditCardModel } from "@/lib/models/credit-card";
 import { CardInvoiceModel } from "@/lib/models/invoice";
-import { toCreditCard } from "@/lib/credit-card-serializer";
+import { findAccessibleCard, serializeCard } from "@/lib/card-access";
 
 const patchCardSchema = z.object({
   name: z.string().trim().min(2).max(80).optional(),
@@ -65,12 +65,15 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (parsed.data.name) {
       await CardInvoiceModel.updateMany(
-        { cardId, createdBy: authUser.id, status: "open" },
+        { cardId, status: "open" },
         { $set: { cardName: parsed.data.name } }
       );
     }
 
-    return NextResponse.json({ ok: true, card: toCreditCard(card.toObject()) });
+    return NextResponse.json({
+      ok: true,
+      card: await serializeCard(card.toObject(), authUser.id),
+    });
   } catch {
     return NextResponse.json(
       { ok: false, error: "Erro ao atualizar cartao" },
@@ -103,11 +106,43 @@ export async function DELETE(_: Request, context: RouteContext) {
       );
     }
 
-    await CardInvoiceModel.deleteMany({ cardId, createdBy: authUser.id });
+    await CardInvoiceModel.deleteMany({ cardId });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json(
       { ok: false, error: "Erro ao excluir cartao" },
+      { status: 500 }
+    );
+  }
+}
+
+export async function GET(_: Request, context: RouteContext) {
+  try {
+    const authUser = await getAuthenticatedUser();
+    if (!authUser) {
+      return NextResponse.json(
+        { ok: false, error: "Nao autenticado" },
+        { status: 401 }
+      );
+    }
+
+    const { cardId } = await context.params;
+    await connectToDatabase();
+    const card = await findAccessibleCard(authUser.id, cardId);
+    if (!card) {
+      return NextResponse.json(
+        { ok: false, error: "Cartao nao encontrado" },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      ok: true,
+      card: await serializeCard(card.toObject(), authUser.id),
+    });
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "Erro ao buscar cartao" },
       { status: 500 }
     );
   }

@@ -431,7 +431,11 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
                       <SelectContent>
                         {creditCards.map((card) => (
                           <SelectItem key={card.id} value={card.id}>
-                            {card.name}
+                            {card.isOwner
+                              ? card.isShared
+                                ? `${card.name} (compartilhado)`
+                                : card.name
+                              : `${card.name} (compartilhado)`}
                           </SelectItem>
                         ))}
                       </SelectContent>

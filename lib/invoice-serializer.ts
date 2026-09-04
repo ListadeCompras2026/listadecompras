@@ -12,6 +12,7 @@ export function toCardInvoice(doc: CardInvoiceDocument): CardInvoice {
     status: doc.status,
     dueDate: new Date(doc.dueDate),
     paidAt: doc.paidAt ? new Date(doc.paidAt) : undefined,
+    paymentMethod: doc.paymentMethod ?? undefined,
     notes: doc.notes ?? undefined,
     createdBy: doc.createdBy,
     createdAt: new Date(doc.createdAt),

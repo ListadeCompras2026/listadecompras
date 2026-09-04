@@ -32,6 +32,11 @@ const creditCardSchema = new Schema(
       required: true,
       index: true,
     },
+    sharedWith: {
+      type: [String],
+      default: [],
+      index: true,
+    },
   },
   {
     timestamps: true,
@@ -45,5 +50,8 @@ export type CreditCardDocument = InferSchemaType<typeof creditCardSchema> & {
   _id: string;
 };
 
-export const CreditCardModel =
-  models.CreditCard || model("CreditCard", creditCardSchema);
+if (models.CreditCard) {
+  delete models.CreditCard;
+}
+
+export const CreditCardModel = model("CreditCard", creditCardSchema);

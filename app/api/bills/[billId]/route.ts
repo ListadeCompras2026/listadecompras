@@ -5,6 +5,10 @@ import { getAuthenticatedUser } from "@/lib/session-user";
 import { BillModel } from "@/lib/models/bill";
 import { toBill } from "@/lib/bill-serializer";
 import { addAmountToOpenInvoice } from "@/lib/invoice-service";
+import {
+  applyBankIfNeeded,
+  refundBankIfNeeded,
+} from "@/lib/bank-account-service";
 
 const patchBillSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -80,6 +84,8 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (parsed.data.paymentMethod)
       bill.paymentMethod = parsed.data.paymentMethod;
 
+    let bankAccount = null;
+
     if (nextStatus === "paid" && !wasPaid) {
       bill.status = "paid";
       bill.paidAt = new Date();
@@ -90,16 +96,30 @@ export async function PATCH(request: Request, context: RouteContext) {
           bill.amount
         );
       }
+      bankAccount = await applyBankIfNeeded(
+        authUser.id,
+        parsed.data.paymentMethod,
+        bill.amount
+      );
     }
 
     if (nextStatus === "pending" && wasPaid) {
+      bankAccount = await refundBankIfNeeded(
+        authUser.id,
+        bill.paymentMethod,
+        bill.amount
+      );
       bill.status = "pending";
       bill.paidAt = undefined;
     }
 
     await bill.save();
 
-    return NextResponse.json({ ok: true, bill: toBill(bill.toObject()) });
+    return NextResponse.json({
+      ok: true,
+      bill: toBill(bill.toObject()),
+      bankAccount,
+    });
   } catch {
     return NextResponse.json(
       { ok: false, error: "Erro ao atualizar conta" },
