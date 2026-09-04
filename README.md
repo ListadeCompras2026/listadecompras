@@ -1,4 +1,4 @@
-# Despesas
+# Despesas:
 
 Aplicacao de controle de despesas mensais com listas de compras, leitura de QR Code do cupom fiscal (NFC-e), contas a pagar e faturas de cartao.
 
