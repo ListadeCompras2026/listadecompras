@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint .",
-    "prepare": "husky"
+    "prepare": "node -e \"if(!process.env.VERCEL){require('child_process').execSync('husky',{stdio:'inherit'})}\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
