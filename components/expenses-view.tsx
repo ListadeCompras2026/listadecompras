@@ -34,7 +34,11 @@ import { toast } from "sonner";
 import { addMonths, format, startOfMonth, subMonths } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { formatCurrency, parseMoney } from "@/lib/money";
-import { billCategoryMeta } from "@/lib/category-ui";
+import {
+  billCategoryMeta,
+  creditCardSkins,
+  mealCardSkins,
+} from "@/lib/category-ui";
 import { cn } from "@/lib/utils";
 import type { Bill, BillCategory, PaymentMethod } from "@/lib/types";
 import { billCategoryLabels, paymentMethodLabels } from "@/lib/types";
@@ -118,19 +122,6 @@ export function ExpensesView({
     .filter((invoice) => invoice.status === "open")
     .reduce((sum, invoice) => sum + invoice.amount, 0);
   const firstName = userName.split(" ")[0];
-  const mealBalance = mealCards.reduce((sum, card) => sum + card.balance, 0);
-  const availableCredit = creditCards.reduce((sum, card) => {
-    if (typeof card.creditLimit !== "number") return sum;
-    const used = invoices
-      .filter(
-        (invoice) => invoice.cardId === card.id && invoice.status === "open"
-      )
-      .reduce((total, invoice) => total + invoice.amount, 0);
-    return sum + (card.creditLimit - used);
-  }, 0);
-  const hasCreditLimit = creditCards.some(
-    (card) => typeof card.creditLimit === "number"
-  );
 
   const resetBillForm = () => {
     setBillName("");
@@ -267,37 +258,112 @@ export function ExpensesView({
               Ver cartões
             </span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div>
-              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Landmark className="h-3 w-3" />
-                Conta
-              </p>
-              <p className="mt-1 text-sm font-bold text-foreground">
-                {bankAccount?.configured
-                  ? formatCurrency(bankAccount.balance)
-                  : "—"}
-              </p>
+
+          {creditCards.length === 0 &&
+          mealCards.length === 0 &&
+          !bankAccount?.configured ? (
+            <p className="text-sm text-muted-foreground">
+              Cadastre cada cartão com o próprio limite.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {creditCards.map((card, index) => {
+                const used = invoices
+                  .filter(
+                    (invoice) =>
+                      invoice.cardId === card.id && invoice.status === "open"
+                  )
+                  .reduce((sum, invoice) => sum + invoice.amount, 0);
+                const available =
+                  typeof card.creditLimit === "number"
+                    ? card.creditLimit - used
+                    : undefined;
+                return (
+                  <div
+                    key={card.id}
+                    className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5"
+                  >
+                    <div
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white",
+                        creditCardSkins[index % creditCardSkins.length]
+                      )}
+                    >
+                      <CreditCard className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">
+                        {card.name}
+                        {card.lastDigits ? ` •••• ${card.lastDigits}` : ""}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {available === undefined
+                          ? "Sem limite cadastrado"
+                          : `Disponível ${formatCurrency(available)}`}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[10px] text-muted-foreground">
+                        Limite
+                      </p>
+                      <p className="text-sm font-bold text-foreground">
+                        {typeof card.creditLimit === "number"
+                          ? formatCurrency(card.creditLimit)
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {mealCards.map((card, index) => (
+                <div
+                  key={card.id}
+                  className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5"
+                >
+                  <div
+                    className={cn(
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white",
+                      mealCardSkins[index % mealCardSkins.length]
+                    )}
+                  >
+                    <UtensilsCrossed className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      {card.name}
+                      {card.lastDigits ? ` •••• ${card.lastDigits}` : ""}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Alimentação
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-foreground">
+                    {formatCurrency(card.balance)}
+                  </p>
+                </div>
+              ))}
+
+              {bankAccount?.configured && (
+                <div className="flex items-center gap-3 rounded-xl bg-muted/50 px-3 py-2.5">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                    <Landmark className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">
+                      Conta
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Saldo para PIX e débito
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-foreground">
+                    {formatCurrency(bankAccount.balance)}
+                  </p>
+                </div>
+              )}
             </div>
-            <div>
-              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <CreditCard className="h-3 w-3" />
-                Limite
-              </p>
-              <p className="mt-1 text-sm font-bold text-foreground">
-                {hasCreditLimit ? formatCurrency(availableCredit) : "—"}
-              </p>
-            </div>
-            <div>
-              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <UtensilsCrossed className="h-3 w-3" />
-                VA/VR
-              </p>
-              <p className="mt-1 text-sm font-bold text-foreground">
-                {mealCards.length > 0 ? formatCurrency(mealBalance) : "—"}
-              </p>
-            </div>
-          </div>
+          )}
         </button>
 
         <section className="space-y-3">

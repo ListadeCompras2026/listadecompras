@@ -3,7 +3,7 @@ import { parseBrNumber } from "@/lib/money";
 import { parseQrPayload } from "@/lib/nfce/parse-qr";
 import { paymentMethodFromNfce } from "@/lib/nfce/payment";
 
-const FETCH_TIMEOUT_MS = 18000;
+const FETCH_TIMEOUT_MS = 4500;
 
 const STATE_CONSULT_URLS: Record<string, (key: string) => string> = {
   "12": (key) => `http://www.sefaznet.ac.gov.br/nfce/qrcode?p=${key}`,
@@ -138,15 +138,24 @@ function parseMoneyLoose(value?: string) {
 }
 
 function extractEmbeddedXml(content: string) {
-  const unescaped = content.includes("&lt;nfeProc")
-    ? decodeXml(content)
-    : content;
+  const unescaped =
+    content.includes("&lt;nfeProc") || content.includes("&lt;NFe")
+      ? decodeXml(content)
+      : content;
   const match =
     unescaped.match(/<\?xml[\s\S]*?<\/nfeProc>/i) ||
     unescaped.match(/<nfeProc[\s\S]*?<\/nfeProc>/i) ||
     unescaped.match(/<NFe[\s\S]*?<\/NFe>/i) ||
     unescaped.match(/<infNFe[\s\S]*?<\/infNFe>/i);
-  return match?.[0];
+  if (match?.[0]) return match[0];
+
+  const hidden = content.match(
+    /<(?:input|textarea)[^>]*(?:name|id)=["'][^"']*xml[^"']*["'][^>]*(?:value=["']([\s\S]*?)["']|>([\s\S]*?)<\/textarea>)/i
+  );
+  if (hidden?.[1] || hidden?.[2]) {
+    return extractEmbeddedXml(decodeXml(hidden[1] || hidden[2] || ""));
+  }
+  return undefined;
 }
 
 function parseXmlReceipt(xml: string): ParsedReceipt | null {
@@ -188,7 +197,9 @@ function parseXmlReceipt(xml: string): ParsedReceipt | null {
 
 function parseSaoPauloStyleHtml(html: string): ParsedReceipt | null {
   const itemBlocks = [
-    ...html.matchAll(/<span class="txtTit[^"]*">([\s\S]*?)<\/span>/gi),
+    ...html.matchAll(
+      /<span class=["']?txtTit[^"'>\s]*["']?[^>]*>([\s\S]*?)<\/span>/gi
+    ),
   ];
   if (itemBlocks.length === 0) return null;
 
@@ -223,8 +234,9 @@ function parseSaoPauloStyleHtml(html: string): ParsedReceipt | null {
   if (items.length === 0) return null;
 
   const totalMatch =
-    html.match(/Valor\s+a\s+pagar[\s\S]{0,80}?([\d.]+,[\d]{2})/i) ||
-    html.match(/Valor total[\s\S]{0,80}?([\d.]+,[\d]{2})/i);
+    html.match(/Valor\s+a\s+pagar[\s\S]{0,160}?([\d.]+,[\d]{2})/i) ||
+    html.match(/Valor total[\s\S]{0,80}?([\d.]+,[\d]{2})/i) ||
+    html.match(/class=["']totalNumb[^"']*["'][^>]*>\s*([\d.]+,[\d]{2})/i);
   const storeMatch =
     html.match(/<div id="u20"[^>]*>([\s\S]*?)<\/div>/i) ||
     html.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i);
@@ -404,8 +416,10 @@ function parseTotalOnlyHtml(
   fallbackTotal?: number
 ): ParsedReceipt | null {
   const totalMatch =
-    html.match(/Valor\s+a\s+pagar[\s\S]{0,120}?([\d.]+,[\d]{2})/i) ||
+    html.match(/Valor\s+a\s+pagar[\s\S]{0,160}?([\d.]+,[\d]{2})/i) ||
     html.match(/Valor\s+total[\s\S]{0,80}?([\d.]+,[\d]{2})/i) ||
+    html.match(/class=["']totalNumb[^"']*["'][^>]*>\s*([\d.]+,[\d]{2})/i) ||
+    html.match(/id=["']totalNota["'][\s\S]{0,240}?([\d.]+,[\d]{2})/i) ||
     html.match(/vNF[^>]*>\s*([\d.]+,[\d]{2}|\d+\.\d{2})/i);
   const totalAmount = totalMatch
     ? parseMoneyLoose(totalMatch[1])
@@ -441,7 +455,120 @@ function parseTotalOnlyHtml(
   };
 }
 
-async function fetchText(url: string, cookies: Map<string, string>) {
+const BROWSER_HEADERS = {
+  "User-Agent":
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36",
+  Accept:
+    "text/html,application/xhtml+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.8",
+  "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+  "Cache-Control": "no-cache",
+  "Upgrade-Insecure-Requests": "1",
+};
+
+function collectCookies(response: Response, cookies: Map<string, string>) {
+  const setCookies =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [];
+  for (const cookie of setCookies) {
+    const pair = cookie.split(";")[0];
+    const eq = pair.indexOf("=");
+    if (eq > 0) {
+      cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
+    }
+  }
+}
+
+function decodeBuffer(buffer: ArrayBuffer, contentType: string) {
+  const charsetMatch = contentType.match(/charset=([^\s;]+)/i);
+  const charset = charsetMatch?.[1] || "utf-8";
+  try {
+    return new TextDecoder(charset).decode(buffer);
+  } catch {
+    return new TextDecoder("utf-8").decode(buffer);
+  }
+}
+
+function looksLikeReceipt(content: string) {
+  return /nfeProc|<NFe[\s>]|<det[\s>]|xProd|txtTit|totalNumb|tabResult|Valor\s+a\s+pagar/i.test(
+    content
+  );
+}
+
+function isBlockedPage(content: string) {
+  if (looksLikeReceipt(content)) return false;
+  return /just a moment|cloudflare|cf-chl|access denied|captcha|recaptcha|hcaptcha|request unsuccessful/i.test(
+    content
+  );
+}
+
+function resolveUrl(href: string, base: string) {
+  try {
+    return new URL(href.replace(/&amp;/g, "&").trim(), base).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function followUpUrls(html: string, base: string) {
+  const urls: string[] = [];
+  const push = (href?: string) => {
+    if (!href || /^(javascript|mailto|#)/i.test(href)) return;
+    const resolved = resolveUrl(href, base);
+    if (resolved) urls.push(resolved);
+  };
+
+  for (const match of html.matchAll(/<iframe[^>]+src=["']([^"']+)["']/gi)) {
+    push(match[1]);
+  }
+
+  for (const match of html.matchAll(
+    /<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi
+  )) {
+    if (
+      /xml|download|completa|danfe|consulta/i.test(match[1]) ||
+      /xml|download|danfe/i.test(match[2])
+    ) {
+      push(match[1]);
+    }
+  }
+
+  const refresh = html.match(
+    /http-equiv=["']refresh["'][^>]*content=["'][^"']*url=([^"';]+)/i
+  );
+  push(refresh?.[1]);
+
+  const location = html.match(
+    /window\.location(?:\.href)?\s*=\s*["']([^"']+)/i
+  );
+  push(location?.[1]);
+
+  return [...new Set(urls)].slice(0, 2);
+}
+
+function hiddenFormFields(html: string) {
+  const fields = new Map<string, string>();
+  for (const match of html.matchAll(/<input\b[^>]*>/gi)) {
+    const tag = match[0];
+    if (
+      !/type=["']hidden["']/i.test(tag) &&
+      !/__VIEWSTATE|ViewState/i.test(tag)
+    ) {
+      continue;
+    }
+    const name = tag.match(/\bname=["']([^"']+)/i)?.[1];
+    if (!name) continue;
+    const value = tag.match(/\bvalue=["']([^"']*)/i)?.[1] ?? "";
+    fields.set(name, decodeXml(value));
+  }
+  return fields;
+}
+
+async function fetchText(
+  url: string,
+  cookies: Map<string, string>,
+  init?: { method?: string; body?: string; contentType?: string }
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   const cookieHeader = [...cookies.entries()]
@@ -449,50 +576,63 @@ async function fetchText(url: string, cookies: Map<string, string>) {
     .join("; ");
 
   try {
+    const origin = new URL(url).origin;
     const response = await fetch(url, {
+      method: init?.method || "GET",
+      body: init?.body,
       signal: controller.signal,
       redirect: "follow",
       headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
-        Accept:
-          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-        Referer: `${new URL(url).origin}/`,
+        ...BROWSER_HEADERS,
+        Referer: `${origin}/`,
+        ...(init?.method === "POST" ? { Origin: origin } : {}),
+        ...(init?.contentType ? { "Content-Type": init.contentType } : {}),
         ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
     });
 
-    const setCookies =
-      typeof response.headers.getSetCookie === "function"
-        ? response.headers.getSetCookie()
-        : [];
-    for (const cookie of setCookies) {
-      const pair = cookie.split(";")[0];
-      const eq = pair.indexOf("=");
-      if (eq > 0) {
-        cookies.set(pair.slice(0, eq).trim(), pair.slice(eq + 1).trim());
-      }
-    }
+    collectCookies(response, cookies);
 
     const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get("content-type") || "";
-    const charsetMatch = contentType.match(/charset=([^\s;]+)/i);
-    const charset = charsetMatch?.[1] || "utf-8";
-    let text = "";
-    try {
-      text = new TextDecoder(charset).decode(buffer);
-    } catch {
-      text = new TextDecoder("utf-8").decode(buffer);
-    }
-
+    const text = decodeBuffer(
+      buffer,
+      response.headers.get("content-type") || ""
+    );
     if (!text.trim()) return null;
+    if (isBlockedPage(text)) return null;
+    if (response.status >= 400 && !looksLikeReceipt(text)) return null;
     return text;
   } catch {
     return null;
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function postHiddenForm(
+  url: string,
+  html: string,
+  cookies: Map<string, string>
+) {
+  const fields = hiddenFormFields(html);
+  if (fields.size === 0) return null;
+  if (!fields.has("__VIEWSTATE") && !fields.has("javax.faces.ViewState")) {
+    return null;
+  }
+
+  const formAction =
+    html.match(/<form\b[^>]*action=["']([^"']*)["']/i)?.[1] || url;
+  const actionUrl = resolveUrl(formAction, url) || url;
+  const body = new URLSearchParams();
+  for (const [name, value] of fields) {
+    body.set(name, value);
+  }
+
+  return fetchText(actionUrl, cookies, {
+    method: "POST",
+    body: body.toString(),
+    contentType: "application/x-www-form-urlencoded",
+  });
 }
 
 function parseDocument(content: string): ParsedReceipt | null {
@@ -519,7 +659,11 @@ function candidateUrls(
 
   if (sourceUrl) {
     urls.push(sourceUrl);
-    if (param && !/[?&]p=/i.test(sourceUrl)) {
+    if (param && /[?&]p=/i.test(sourceUrl)) {
+      urls.push(
+        sourceUrl.replace(/([?&]p=)[^&]*/i, `$1${encodeURIComponent(param)}`)
+      );
+    } else if (param) {
       urls.push(...withParam(sourceUrl, param));
     }
   }
@@ -528,18 +672,17 @@ function candidateUrls(
     const uf = accessKey.slice(0, 2);
     const builder = STATE_CONSULT_URLS[uf];
     if (builder) {
-      urls.push(builder(param));
-      if (param !== accessKey) urls.push(builder(accessKey));
+      urls.push(builder(encodeQrParam(param)));
+      urls.push(builder(encodeURIComponent(param)));
+      if (param !== accessKey) {
+        urls.push(builder(accessKey));
+      }
     }
     if (SVRS_STATES.has(uf)) {
       urls.push(
-        `https://dfe-portal.svrs.rs.gov.br/Nfce/ConsultaQRCode?p=${encodeQrParam(param)}`
+        `https://dfe-portal.svrs.rs.gov.br/Nfce/ConsultaQRCode?p=${encodeURIComponent(param)}`
       );
     }
-    urls.push(
-      `https://www.nfce.fazenda.sp.gov.br/NFCeConsultaPublica/Paginas/ConsultaQRCode.aspx?p=${encodeQrParam(param)}`,
-      `https://www.nfce.fazenda.sp.gov.br/qrcode?p=${encodeQrParam(param)}`
-    );
   }
 
   return [...new Set(urls.filter(Boolean))];
@@ -567,6 +710,110 @@ function fallbackReceipt(
   };
 }
 
+function attachMeta(
+  parsed: ParsedReceipt,
+  accessKey?: string,
+  sourceUrl?: string
+) {
+  parsed.accessKey = parsed.accessKey || accessKey;
+  parsed.sourceUrl = parsed.sourceUrl || sourceUrl;
+  if (!parsed.totalAmount) {
+    parsed.totalAmount = Number(
+      parsed.items.reduce((sum, item) => sum + item.totalPrice, 0).toFixed(2)
+    );
+  }
+  return parsed;
+}
+
+async function readFromUrl(
+  url: string,
+  cookies: Map<string, string>,
+  deep = true
+) {
+  const html = await fetchText(url, cookies);
+  if (!html)
+    return {
+      parsed: null as ParsedReceipt | null,
+      html: null as string | null,
+    };
+
+  let parsed = parseDocument(html);
+  if (parsed) {
+    parsed.sourceUrl = url;
+    return { parsed, html };
+  }
+
+  if (!deep) return { parsed: null, html };
+
+  const posted = looksLikeReceipt(html)
+    ? null
+    : await postHiddenForm(url, html, cookies);
+  if (posted) {
+    parsed = parseDocument(posted);
+    if (parsed) {
+      parsed.sourceUrl = url;
+      return { parsed, html: posted };
+    }
+  }
+
+  const follows = followUpUrls(posted || html, url);
+  for (const next of follows) {
+    const child = await fetchText(next, cookies);
+    if (!child) continue;
+    parsed = parseDocument(child);
+    if (parsed) {
+      parsed.sourceUrl = next;
+      return { parsed, html: child };
+    }
+  }
+
+  return { parsed: null, html: posted || html };
+}
+
+async function firstParsedReceipt(urls: string[]) {
+  if (urls.length === 0) {
+    return {
+      parsed: null as ParsedReceipt | null,
+      lastHtml: null as string | null,
+    };
+  }
+
+  return new Promise<{
+    parsed: ParsedReceipt | null;
+    lastHtml: string | null;
+  }>((resolve) => {
+    let remaining = urls.length;
+    let lastHtml: string | null = null;
+    let settled = false;
+
+    urls.forEach((url, index) => {
+      void readFromUrl(url, new Map(), index === 0)
+        .then((result) => {
+          if (settled) return;
+          if (result.html) lastHtml = result.html;
+          if (result.parsed) {
+            settled = true;
+            resolve({ parsed: result.parsed, lastHtml });
+            return;
+          }
+          remaining -= 1;
+          if (remaining === 0) {
+            settled = true;
+            resolve({ parsed: null, lastHtml });
+          }
+        })
+        .catch(() => {
+          if (settled) return;
+          remaining -= 1;
+          if (remaining === 0) {
+            settled = true;
+            resolve({ parsed: null, lastHtml });
+          }
+        });
+    });
+  });
+}
+
 export async function parseNfceFromQr(rawQr: string): Promise<ParsedReceipt> {
   const { sourceUrl, accessKey, qrParam, contingencyTotal } =
     parseQrPayload(rawQr);
@@ -575,26 +822,13 @@ export async function parseNfceFromQr(rawQr: string): Promise<ParsedReceipt> {
   }
 
   const urls = candidateUrls(sourceUrl, accessKey, qrParam);
-  const cookies = new Map<string, string>();
-  let parsed: ParsedReceipt | null = null;
-  let lastHtml: string | null = null;
-
-  for (const url of urls) {
-    const content = await fetchText(url, cookies);
-    if (!content) continue;
-    lastHtml = content;
-    parsed = parseDocument(content);
-    if (parsed) {
-      parsed.sourceUrl = url;
-      parsed.accessKey = parsed.accessKey || accessKey;
-      break;
-    }
-  }
+  const raced = await firstParsedReceipt(urls.slice(0, 4));
+  let parsed = raced.parsed;
+  let lastHtml = raced.lastHtml;
 
   if (!parsed && lastHtml) {
     parsed = parseTotalOnlyHtml(lastHtml, contingencyTotal);
     if (parsed) {
-      parsed.accessKey = parsed.accessKey || accessKey;
       parsed.sourceUrl = parsed.sourceUrl || sourceUrl;
     }
   }
@@ -609,11 +843,5 @@ export async function parseNfceFromQr(rawQr: string): Promise<ParsedReceipt> {
     );
   }
 
-  if (!parsed.totalAmount) {
-    parsed.totalAmount = Number(
-      parsed.items.reduce((sum, item) => sum + item.totalPrice, 0).toFixed(2)
-    );
-  }
-
-  return parsed;
+  return attachMeta(parsed, accessKey, sourceUrl);
 }

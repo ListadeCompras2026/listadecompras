@@ -4,10 +4,11 @@ import { getAuthenticatedUser } from "@/lib/session-user";
 import { parseNfceFromQr } from "@/lib/nfce/fetch-receipt";
 
 const parseReceiptSchema = z.object({
-  qrContent: z.string().trim().min(8).max(2000),
+  qrContent: z.string().trim().min(8).max(4000),
 });
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {

@@ -31,7 +31,7 @@ export function extractQrParam(raw: string) {
 }
 
 export function extractNfceUrl(raw: string) {
-  const trimmed = raw.trim();
+  const trimmed = raw.trim().replace(/\s+/g, "");
   const embedded = trimmed.match(URL_REGEX);
   if (embedded?.[0]) {
     return embedded[0].replace(/[),.;]+$/, "");
