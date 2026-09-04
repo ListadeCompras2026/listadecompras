@@ -27,6 +27,11 @@ const creditCardSchema = new Schema(
       min: 1,
       max: 31,
     },
+    creditLimit: {
+      type: Number,
+      required: false,
+      min: 0,
+    },
     createdBy: {
       type: String,
       required: true,

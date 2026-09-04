@@ -2,11 +2,20 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { connectToDatabase } from "@/lib/mongodb";
 import { getAuthenticatedUser } from "@/lib/session-user";
-import { getBankAccount, setBankBalance } from "@/lib/bank-account-service";
+import {
+  getBankAccount,
+  setBankBalance,
+  addBankIncome,
+} from "@/lib/bank-account-service";
 
-const patchSchema = z.object({
-  balance: z.number().finite(),
-});
+const patchSchema = z
+  .object({
+    balance: z.number().finite().optional(),
+    income: z.number().positive().optional(),
+  })
+  .refine((data) => data.balance !== undefined || data.income !== undefined, {
+    message: "Informe saldo ou recebimento",
+  });
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +60,10 @@ export async function PATCH(request: Request) {
     }
 
     await connectToDatabase();
-    const account = await setBankBalance(authUser.id, parsed.data.balance);
+    const account =
+      parsed.data.income !== undefined
+        ? await addBankIncome(authUser.id, parsed.data.income)
+        : await setBankBalance(authUser.id, parsed.data.balance ?? 0);
     return NextResponse.json({ ok: true, account });
   } catch {
     return NextResponse.json(

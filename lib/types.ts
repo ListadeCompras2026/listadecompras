@@ -86,6 +86,7 @@ export interface Purchase {
   receiptKey?: string;
   receiptUrl?: string;
   cardId?: string;
+  mealCardId?: string;
   source: PurchaseSource;
   category?: TransactionCategory;
 }
@@ -166,11 +167,22 @@ export interface CreditCard {
   lastDigits?: string;
   closingDay: number;
   dueDay: number;
+  creditLimit?: number;
   createdBy: string;
   sharedWith: string[];
   members: CreditCardMember[];
   isOwner: boolean;
   isShared: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface MealCard {
+  id: string;
+  name: string;
+  lastDigits?: string;
+  balance: number;
+  createdBy: string;
   createdAt: Date;
   updatedAt: Date;
 }

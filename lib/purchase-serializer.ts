@@ -27,6 +27,7 @@ export function toPurchase(doc: PurchaseDocument): Purchase {
     receiptKey: doc.receiptKey ?? undefined,
     receiptUrl: doc.receiptUrl ?? undefined,
     cardId: doc.cardId ?? undefined,
+    mealCardId: doc.mealCardId ?? undefined,
     source: doc.source === "standalone" ? "standalone" : "list",
     category: doc.category as Purchase["category"],
   };

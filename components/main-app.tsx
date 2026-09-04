@@ -7,6 +7,7 @@ import { ShoppingListsView } from "./shopping-lists-view";
 import { HistoryView } from "./history-view";
 import { ReportsView } from "./reports-view";
 import { ExpensesView } from "./expenses-view";
+import { CardsView } from "./cards-view";
 import { BottomNav } from "./bottom-nav";
 import { PushNotificationPrompt } from "./push-notification-prompt";
 import { SettingsView } from "./settings-view";
@@ -19,7 +20,8 @@ import {
   DrawerTitle,
 } from "@/components/ui/drawer";
 
-export type TabType = "lists" | "expenses" | "history" | "reports" | "settings";
+export type TabType =
+  "lists" | "expenses" | "cards" | "history" | "reports" | "settings";
 export type QuickAction = "bill" | "card" | "list" | "receipt" | null;
 
 export function MainApp() {
@@ -46,6 +48,8 @@ export function MainApp() {
     }
     if (action === "list") {
       setActiveTab("lists");
+    } else if (action === "card") {
+      setActiveTab("cards");
     } else {
       setActiveTab("expenses");
     }
@@ -70,6 +74,14 @@ export function MainApp() {
           <ExpensesView
             userName={currentUser.name}
             onOpenSettings={() => setActiveTab("settings")}
+            onOpenCards={() => setActiveTab("cards")}
+            onOpenHistory={() => setActiveTab("history")}
+            quickAction={quickAction}
+            onQuickActionConsumed={() => setQuickAction(null)}
+          />
+        )}
+        {activeTab === "cards" && (
+          <CardsView
             quickAction={quickAction}
             onQuickActionConsumed={() => setQuickAction(null)}
           />
@@ -82,6 +94,7 @@ export function MainApp() {
           <SettingsView
             userName={currentUser.name}
             onOpenReports={() => setActiveTab("reports")}
+            onOpenHistory={() => setActiveTab("history")}
           />
         )}
       </main>

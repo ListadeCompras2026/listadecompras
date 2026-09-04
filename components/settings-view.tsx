@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
 import { Button } from "@/components/ui/button";
 import {
+  ArrowLeftRight,
   BarChart3,
   ChevronRight,
   LogOut,
@@ -17,9 +18,14 @@ import { useAppStore } from "@/lib/store";
 interface SettingsViewProps {
   userName: string;
   onOpenReports: () => void;
+  onOpenHistory: () => void;
 }
 
-export function SettingsView({ userName, onOpenReports }: SettingsViewProps) {
+export function SettingsView({
+  userName,
+  onOpenReports,
+  onOpenHistory,
+}: SettingsViewProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const logout = useAppStore((state) => state.logout);
@@ -50,8 +56,24 @@ export function SettingsView({ userName, onOpenReports }: SettingsViewProps) {
       <div className="soft-shadow overflow-hidden rounded-2xl bg-card">
         <button
           type="button"
-          onClick={onOpenReports}
+          onClick={onOpenHistory}
           className="flex w-full items-center gap-3 px-4 py-3.5 text-left"
+        >
+          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <ArrowLeftRight className="h-5 w-5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-foreground">Transações</p>
+            <p className="text-xs text-muted-foreground">
+              Histórico de lançamentos
+            </p>
+          </div>
+          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+        </button>
+        <button
+          type="button"
+          onClick={onOpenReports}
+          className="flex w-full items-center gap-3 border-t border-border px-4 py-3.5 text-left"
         >
           <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
             <BarChart3 className="h-5 w-5" />

@@ -12,28 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAppStore } from "@/lib/store";
 import { formatCurrency } from "@/lib/money";
 import type { ParsedReceipt, PaymentMethod } from "@/lib/types";
 import { paymentMethodLabels } from "@/lib/types";
+import { PaymentCardSelect } from "@/components/payment-card-select";
 
 interface QuickReceiptDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: () => void;
-}
-
-function cardLabel(name: string, isShared: boolean, isOwner: boolean) {
-  if (!isOwner) return `${name} (compartilhado)`;
-  if (isShared) return `${name} (compartilhado)`;
-  return name;
 }
 
 export function QuickReceiptDialog({
@@ -44,6 +32,7 @@ export function QuickReceiptDialog({
   const parseReceipt = useAppStore((state) => state.parseReceipt);
   const createExpense = useAppStore((state) => state.createExpense);
   const creditCards = useAppStore((state) => state.creditCards);
+  const mealCards = useAppStore((state) => state.mealCards);
   const currentUser = useAppStore((state) => state.currentUser);
 
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -52,6 +41,7 @@ export function QuickReceiptDialog({
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [cardId, setCardId] = useState("");
+  const [mealCardId, setMealCardId] = useState("");
   const keepOpenRef = useRef(false);
 
   useEffect(() => {
@@ -67,7 +57,8 @@ export function QuickReceiptDialog({
     setReceipt(null);
     setScannerOpen(true);
     setCardId(creditCards[0]?.id || "");
-  }, [creditCards, open]);
+    setMealCardId(mealCards[0]?.id || "");
+  }, [creditCards, mealCards, open]);
 
   const handleScan = async (value: string) => {
     keepOpenRef.current = true;
@@ -85,6 +76,9 @@ export function QuickReceiptDialog({
       if (parsed.paymentMethod === "credit") {
         setCardId(creditCards[0]?.id || "");
       }
+      if (parsed.paymentMethod === "meal") {
+        setMealCardId(mealCards[0]?.id || "");
+      }
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Não foi possível ler o cupom"
@@ -101,6 +95,10 @@ export function QuickReceiptDialog({
       toast.error("Selecione o cartão");
       return;
     }
+    if (paymentMethod === "meal" && mealCards.length > 0 && !mealCardId) {
+      toast.error("Selecione o cartão alimentação");
+      return;
+    }
 
     const selectedCard = creditCards.find((card) => card.id === cardId);
     setIsSaving(true);
@@ -112,6 +110,8 @@ export function QuickReceiptDialog({
       store: receipt.store,
       cardId:
         paymentMethod === "credit" ? cardId || creditCards[0]?.id : undefined,
+      mealCardId:
+        paymentMethod === "meal" ? mealCardId || mealCards[0]?.id : undefined,
       receiptKey: receipt.accessKey,
       receiptUrl: receipt.sourceUrl,
       items: receipt.items.map((item) => ({
@@ -208,26 +208,13 @@ export function QuickReceiptDialog({
                 </div>
               </div>
 
-              {paymentMethod === "credit" && creditCards.length > 0 && (
-                <div className="space-y-2">
-                  <Label>Cartão</Label>
-                  <Select
-                    value={cardId || creditCards[0]?.id}
-                    onValueChange={setCardId}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {creditCards.map((card) => (
-                        <SelectItem key={card.id} value={card.id}>
-                          {cardLabel(card.name, card.isShared, card.isOwner)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              <PaymentCardSelect
+                paymentMethod={paymentMethod}
+                cardId={cardId}
+                onCardIdChange={setCardId}
+                mealCardId={mealCardId}
+                onMealCardIdChange={setMealCardId}
+              />
 
               {paymentMethod === "credit" &&
                 creditCards.find(

@@ -34,6 +34,7 @@ import type {
   ShoppingList,
 } from "@/lib/types";
 import { paymentMethodLabels } from "@/lib/types";
+import { PaymentCardSelect } from "@/components/payment-card-select";
 
 interface ReceiptReconcileDialogProps {
   open: boolean;
@@ -63,6 +64,7 @@ export function ReceiptReconcileDialog({
   );
   const completePurchase = useAppStore((state) => state.completePurchase);
   const creditCards = useAppStore((state) => state.creditCards);
+  const mealCards = useAppStore((state) => state.mealCards);
   const loadExpenses = useAppStore((state) => state.loadExpenses);
 
   const initialMatches = useMemo(
@@ -75,6 +77,7 @@ export function ReceiptReconcileDialog({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [storeName, setStoreName] = useState("");
   const [cardId, setCardId] = useState("");
+  const [mealCardId, setMealCardId] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -84,7 +87,8 @@ export function ReceiptReconcileDialog({
     setPaymentMethod(receipt.paymentMethod || "pix");
     setStoreName(receipt.store || "");
     setCardId(creditCards[0]?.id || "");
-  }, [creditCards, initialMatches, open, receipt]);
+    setMealCardId(mealCards[0]?.id || "");
+  }, [creditCards, mealCards, initialMatches, open, receipt]);
 
   if (!receipt) return null;
 
@@ -136,6 +140,10 @@ export function ReceiptReconcileDialog({
       toast.error("Cadastre ou selecione um cartao para lancar a fatura");
       return;
     }
+    if (paymentMethod === "meal" && mealCards.length > 0 && !mealCardId) {
+      toast.error("Selecione o cartão alimentação");
+      return;
+    }
 
     setIsSaving(true);
     const success = await completePurchase({
@@ -144,6 +152,8 @@ export function ReceiptReconcileDialog({
       paymentMethod,
       store: storeName || undefined,
       cardId: paymentMethod === "credit" ? cardId : undefined,
+      mealCardId:
+        paymentMethod === "meal" ? mealCardId || mealCards[0]?.id : undefined,
       receiptKey: receipt.accessKey,
       receiptUrl: receipt.sourceUrl,
       items: matches.map((match) => ({
@@ -289,35 +299,13 @@ export function ReceiptReconcileDialog({
             </div>
           </div>
 
-          {paymentMethod === "credit" && (
-            <div className="space-y-2">
-              <Label>Lancar na fatura</Label>
-              {creditCards.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Cadastre um cartao na aba Despesas para atualizar a fatura
-                  automaticamente.
-                </p>
-              ) : (
-                <Select value={cardId} onValueChange={setCardId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione o cartao" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {creditCards.map((card) => (
-                      <SelectItem key={card.id} value={card.id}>
-                        {card.isOwner
-                          ? card.isShared
-                            ? `${card.name} (compartilhado)`
-                            : card.name
-                          : `${card.name} (compartilhado)`}{" "}
-                        {card.lastDigits ? `•••• ${card.lastDigits}` : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-          )}
+          <PaymentCardSelect
+            paymentMethod={paymentMethod}
+            cardId={cardId}
+            onCardIdChange={setCardId}
+            mealCardId={mealCardId}
+            onMealCardIdChange={setMealCardId}
+          />
 
           <div className="space-y-2">
             <Label>Estabelecimento</Label>

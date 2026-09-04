@@ -84,6 +84,11 @@ const purchaseSchema = new Schema(
       required: false,
       index: true,
     },
+    mealCardId: {
+      type: String,
+      required: false,
+      index: true,
+    },
     source: {
       type: String,
       enum: ["list", "standalone"],

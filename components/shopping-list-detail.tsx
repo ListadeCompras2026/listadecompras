@@ -39,6 +39,7 @@ import { categoryLabels, paymentMethodLabels } from "@/lib/types";
 import { formatCurrency } from "@/lib/money";
 import { QrScannerDialog } from "@/components/qr-scanner-dialog";
 import { ReceiptReconcileDialog } from "@/components/receipt-reconcile-dialog";
+import { PaymentCardSelect } from "@/components/payment-card-select";
 
 interface ShoppingListDetailProps {
   list: ShoppingList;
@@ -70,6 +71,7 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [storeName, setStoreName] = useState("");
   const [cardId, setCardId] = useState("");
+  const [mealCardId, setMealCardId] = useState("");
 
   const addItemToList = useAppStore((state) => state.addItemToList);
   const removeItemFromList = useAppStore((state) => state.removeItemFromList);
@@ -77,6 +79,7 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
   const completePurchase = useAppStore((state) => state.completePurchase);
   const parseReceipt = useAppStore((state) => state.parseReceipt);
   const creditCards = useAppStore((state) => state.creditCards);
+  const mealCards = useAppStore((state) => state.mealCards);
   const loadExpenses = useAppStore((state) => state.loadExpenses);
 
   const checkedCount = list.items.filter((item) => item.checked).length;
@@ -119,6 +122,10 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
       toast.error("Selecione o cartao");
       return;
     }
+    if (paymentMethod === "meal" && mealCards.length > 0 && !mealCardId) {
+      toast.error("Selecione o cartão alimentação");
+      return;
+    }
 
     const success = await completePurchase({
       listId: list.id,
@@ -127,6 +134,8 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
       store: storeName || undefined,
       cardId:
         paymentMethod === "credit" ? cardId || creditCards[0]?.id : undefined,
+      mealCardId:
+        paymentMethod === "meal" ? mealCardId || mealCards[0]?.id : undefined,
       items: list.items
         .filter((item) => item.checked)
         .map((item) => ({
@@ -418,30 +427,13 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
                     )}
                   </div>
                 </div>
-                {paymentMethod === "credit" && creditCards.length > 0 && (
-                  <div className="space-y-2">
-                    <Label>Cartao</Label>
-                    <Select
-                      value={cardId || creditCards[0]?.id}
-                      onValueChange={setCardId}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {creditCards.map((card) => (
-                          <SelectItem key={card.id} value={card.id}>
-                            {card.isOwner
-                              ? card.isShared
-                                ? `${card.name} (compartilhado)`
-                                : card.name
-                              : `${card.name} (compartilhado)`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                <PaymentCardSelect
+                  paymentMethod={paymentMethod}
+                  cardId={cardId}
+                  onCardIdChange={setCardId}
+                  mealCardId={mealCardId}
+                  onMealCardIdChange={setMealCardId}
+                />
                 <div className="space-y-2">
                   <Label>Estabelecimento (opcional)</Label>
                   <Input

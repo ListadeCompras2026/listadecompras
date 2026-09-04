@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
+import { z } from "zod";
 import { connectToDatabase } from "@/lib/mongodb";
 import { getAuthenticatedUser } from "@/lib/session-user";
-import { CreditCardModel } from "@/lib/models/credit-card";
-import { serializeCards, serializeCard } from "@/lib/card-access";
-import { getOrCreateOpenInvoice } from "@/lib/invoice-service";
-import { toCardInvoice } from "@/lib/invoice-serializer";
-import { z } from "zod";
+import { MealCardModel } from "@/lib/models/meal-card";
+import { toMealCard } from "@/lib/meal-card-serializer";
+import { listMealCards } from "@/lib/meal-card-service";
 
-const createCardSchema = z.object({
+const createSchema = z.object({
   name: z.string().trim().min(2).max(80),
   lastDigits: z
     .string()
@@ -15,9 +14,7 @@ const createCardSchema = z.object({
     .regex(/^\d{4}$/)
     .optional()
     .or(z.literal("")),
-  closingDay: z.number().int().min(1).max(31),
-  dueDay: z.number().int().min(1).max(31),
-  creditLimit: z.number().min(0).optional(),
+  balance: z.number().min(0).default(0),
 });
 
 export const dynamic = "force-dynamic";
@@ -33,19 +30,11 @@ export async function GET() {
     }
 
     await connectToDatabase();
-    const cards = await CreditCardModel.find({
-      $or: [{ createdBy: authUser.id }, { sharedWith: authUser.id }],
-    })
-      .sort({ name: 1 })
-      .lean();
-
-    return NextResponse.json({
-      ok: true,
-      cards: await serializeCards(cards, authUser.id),
-    });
+    const cards = await listMealCards(authUser.id);
+    return NextResponse.json({ ok: true, cards });
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Erro ao listar cartoes" },
+      { ok: false, error: "Erro ao listar cartoes alimentacao" },
       { status: 500 }
     );
   }
@@ -62,7 +51,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const parsed = createCardSchema.safeParse(body);
+    const parsed = createSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json(
         { ok: false, error: "Dados do cartao invalidos" },
@@ -71,35 +60,20 @@ export async function POST(request: Request) {
     }
 
     await connectToDatabase();
-
-    const created = await CreditCardModel.create({
+    const created = await MealCardModel.create({
       name: parsed.data.name,
       lastDigits: parsed.data.lastDigits || undefined,
-      closingDay: parsed.data.closingDay,
-      dueDay: parsed.data.dueDay,
-      creditLimit: parsed.data.creditLimit,
+      balance: Number(parsed.data.balance.toFixed(2)),
       createdBy: authUser.id,
-      sharedWith: [],
     });
 
-    const invoiceResult = await getOrCreateOpenInvoice(
-      authUser.id,
-      String(created._id)
-    );
-
     return NextResponse.json(
-      {
-        ok: true,
-        card: await serializeCard(created.toObject(), authUser.id),
-        invoice: invoiceResult
-          ? toCardInvoice(invoiceResult.invoice.toObject())
-          : null,
-      },
+      { ok: true, card: toMealCard(created.toObject()) },
       { status: 201 }
     );
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Erro ao criar cartao" },
+      { ok: false, error: "Erro ao criar cartao alimentacao" },
       { status: 500 }
     );
   }

@@ -10,6 +10,7 @@ import { toShoppingList } from "@/lib/shopping-list-serializer";
 import { addAmountToOpenInvoice } from "@/lib/invoice-service";
 import { accessibleCardsFilter } from "@/lib/card-access";
 import { applyBankIfNeeded } from "@/lib/bank-account-service";
+import { applyMealIfNeeded } from "@/lib/meal-card-service";
 import { UserModel } from "@/lib/models/user";
 
 const purchaseItemSchema = z.object({
@@ -32,6 +33,7 @@ const createPurchaseSchema = z
     paymentMethod: z.enum(["credit", "debit", "pix", "cash", "meal"]),
     store: z.string().trim().max(140).optional(),
     cardId: z.string().min(1).optional(),
+    mealCardId: z.string().min(1).optional(),
     receiptKey: z.string().trim().max(60).optional(),
     receiptUrl: z.string().trim().max(500).optional(),
     completeList: z.boolean().optional(),
@@ -173,6 +175,7 @@ export async function POST(request: Request) {
         receiptKey: parsed.data.receiptKey,
         receiptUrl: parsed.data.receiptUrl,
         cardId: parsed.data.cardId,
+        mealCardId: parsed.data.mealCardId,
         source: "standalone",
         category: parsed.data.category || "others",
       });
@@ -191,6 +194,12 @@ export async function POST(request: Request) {
         parsed.data.paymentMethod,
         parsed.data.totalAmount
       );
+      const mealCard = await applyMealIfNeeded(
+        authUser.id,
+        parsed.data.paymentMethod,
+        parsed.data.mealCardId,
+        parsed.data.totalAmount
+      );
 
       return NextResponse.json(
         {
@@ -198,6 +207,7 @@ export async function POST(request: Request) {
           purchase: toPurchase(purchase.toObject()),
           invoice,
           bankAccount,
+          mealCard,
         },
         { status: 201 }
       );
@@ -281,6 +291,7 @@ export async function POST(request: Request) {
       receiptKey: parsed.data.receiptKey,
       receiptUrl: parsed.data.receiptUrl,
       cardId: parsed.data.cardId,
+      mealCardId: parsed.data.mealCardId,
       source: "list",
       category: "shopping",
     });
@@ -301,6 +312,12 @@ export async function POST(request: Request) {
       parsed.data.paymentMethod,
       parsed.data.totalAmount
     );
+    const mealCard = await applyMealIfNeeded(
+      authUser.id,
+      parsed.data.paymentMethod,
+      parsed.data.mealCardId,
+      parsed.data.totalAmount
+    );
 
     return NextResponse.json(
       {
@@ -309,6 +326,7 @@ export async function POST(request: Request) {
         list: toShoppingList(list.toObject()),
         invoice,
         bankAccount,
+        mealCard,
       },
       { status: 201 }
     );

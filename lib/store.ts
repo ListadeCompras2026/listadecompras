@@ -16,6 +16,7 @@ import type {
   ReceiptMatch,
   TransactionCategory,
   BankAccount,
+  MealCard,
 } from "./types";
 import { matchReceiptToList } from "@/lib/nfce/match-items";
 import { getPeriod } from "@/lib/period";
@@ -26,6 +27,7 @@ interface CompletePurchaseInput {
   paymentMethod: PaymentMethod;
   store?: string;
   cardId?: string;
+  mealCardId?: string;
   receiptKey?: string;
   receiptUrl?: string;
   completeList?: boolean;
@@ -54,6 +56,7 @@ interface AppState {
 
   bills: Bill[];
   creditCards: CreditCard[];
+  mealCards: MealCard[];
   invoices: CardInvoice[];
   bankAccount: BankAccount | null;
   selectedYear: number;
@@ -96,6 +99,7 @@ interface AppState {
     category: TransactionCategory;
     store?: string;
     cardId?: string;
+    mealCardId?: string;
     completedAt?: string;
     receiptKey?: string;
     receiptUrl?: string;
@@ -126,7 +130,8 @@ interface AppState {
   payBill: (
     billId: string,
     paymentMethod: PaymentMethod,
-    cardId?: string
+    cardId?: string,
+    mealCardId?: string
   ) => Promise<boolean>;
   reopenBill: (billId: string) => Promise<boolean>;
   deleteBill: (billId: string) => Promise<boolean>;
@@ -136,10 +141,27 @@ interface AppState {
     lastDigits?: string;
     closingDay: number;
     dueDay: number;
+    creditLimit?: number;
   }) => Promise<CreditCard | null>;
+  updateCreditCard: (
+    cardId: string,
+    data: Partial<
+      Pick<
+        CreditCard,
+        "name" | "lastDigits" | "closingDay" | "dueDay" | "creditLimit"
+      >
+    >
+  ) => Promise<boolean>;
   shareCreditCard: (cardId: string, email: string) => Promise<boolean>;
   unshareCreditCard: (cardId: string, userId: string) => Promise<boolean>;
   deleteCreditCard: (cardId: string) => Promise<boolean>;
+  createMealCard: (input: {
+    name: string;
+    lastDigits?: string;
+    balance?: number;
+  }) => Promise<MealCard | null>;
+  rechargeMealCard: (cardId: string, amount: number) => Promise<boolean>;
+  deleteMealCard: (cardId: string) => Promise<boolean>;
   updateInvoiceAmount: (invoiceId: string, amount: number) => Promise<boolean>;
   payInvoice: (
     invoiceId: string,
@@ -147,6 +169,7 @@ interface AppState {
   ) => Promise<boolean>;
   reopenInvoice: (invoiceId: string) => Promise<boolean>;
   setBankBalance: (balance: number) => Promise<boolean>;
+  addBankIncome: (amount: number) => Promise<boolean>;
 
   getListById: (listId: string) => ShoppingList | undefined;
   getMyLists: () => ShoppingList[];
@@ -192,6 +215,7 @@ export const useAppStore = create<AppState>()(
       isPurchasesLoading: false,
       bills: [],
       creditCards: [],
+      mealCards: [],
       invoices: [],
       bankAccount: null,
       selectedYear: current.year,
@@ -246,18 +270,21 @@ export const useAppStore = create<AppState>()(
         });
         try {
           const query = `year=${period.year}&month=${period.month}`;
-          const [billsRes, cardsRes, invoicesRes, bankRes] = await Promise.all([
-            fetch(`/api/bills?${query}`, { cache: "no-store" }),
-            fetch("/api/credit-cards", { cache: "no-store" }),
-            fetch(`/api/invoices?${query}`, { cache: "no-store" }),
-            fetch("/api/bank-account", { cache: "no-store" }),
-          ]);
-          const [billsData, cardsData, invoicesData, bankData] =
+          const [billsRes, cardsRes, invoicesRes, bankRes, mealRes] =
+            await Promise.all([
+              fetch(`/api/bills?${query}`, { cache: "no-store" }),
+              fetch("/api/credit-cards", { cache: "no-store" }),
+              fetch(`/api/invoices?${query}`, { cache: "no-store" }),
+              fetch("/api/bank-account", { cache: "no-store" }),
+              fetch("/api/meal-cards", { cache: "no-store" }),
+            ]);
+          const [billsData, cardsData, invoicesData, bankData, mealData] =
             await Promise.all([
               parseJson(billsRes),
               parseJson(cardsRes),
               parseJson(invoicesRes),
               parseJson(bankRes),
+              parseJson(mealRes),
             ]);
           set({
             bills:
@@ -267,6 +294,10 @@ export const useAppStore = create<AppState>()(
             creditCards:
               cardsData?.ok && Array.isArray(cardsData.cards)
                 ? cardsData.cards
+                : [],
+            mealCards:
+              mealData?.ok && Array.isArray(mealData.cards)
+                ? mealData.cards
                 : [],
             invoices:
               invoicesData?.ok && Array.isArray(invoicesData.invoices)
@@ -280,6 +311,7 @@ export const useAppStore = create<AppState>()(
           set({
             bills: [],
             creditCards: [],
+            mealCards: [],
             invoices: [],
             bankAccount: null,
             isExpensesLoading: false,
@@ -377,6 +409,7 @@ export const useAppStore = create<AppState>()(
             purchases: [],
             bills: [],
             creditCards: [],
+            mealCards: [],
             invoices: [],
             bankAccount: null,
           });
@@ -598,6 +631,13 @@ export const useAppStore = create<AppState>()(
                   : [data.invoice, ...state.invoices]
                 : state.invoices,
               bankAccount: data.bankAccount ?? state.bankAccount,
+              mealCards: data.mealCard
+                ? state.mealCards.some((card) => card.id === data.mealCard.id)
+                  ? state.mealCards.map((card) =>
+                      card.id === data.mealCard.id ? data.mealCard : card
+                    )
+                  : [...state.mealCards, data.mealCard]
+                : state.mealCards,
             }));
             return true;
           }
@@ -619,6 +659,7 @@ export const useAppStore = create<AppState>()(
               category: input.category,
               store: input.store,
               cardId: input.cardId,
+              mealCardId: input.mealCardId,
               completedAt: input.completedAt,
               receiptKey: input.receiptKey,
               receiptUrl: input.receiptUrl,
@@ -640,6 +681,13 @@ export const useAppStore = create<AppState>()(
                   : [data.invoice, ...state.invoices]
                 : state.invoices,
               bankAccount: data.bankAccount ?? state.bankAccount,
+              mealCards: data.mealCard
+                ? state.mealCards.some((card) => card.id === data.mealCard.id)
+                  ? state.mealCards.map((card) =>
+                      card.id === data.mealCard.id ? data.mealCard : card
+                    )
+                  : [...state.mealCards, data.mealCard]
+                : state.mealCards,
             }));
             return true;
           }
@@ -697,12 +745,17 @@ export const useAppStore = create<AppState>()(
         }
       },
 
-      payBill: async (billId, paymentMethod, cardId) => {
+      payBill: async (billId, paymentMethod, cardId, mealCardId) => {
         try {
           const response = await fetch(`/api/bills/${billId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "paid", paymentMethod, cardId }),
+            body: JSON.stringify({
+              status: "paid",
+              paymentMethod,
+              cardId,
+              mealCardId,
+            }),
           });
           const data = await parseJson(response);
           if (data?.ok && data?.bill) {
@@ -711,6 +764,11 @@ export const useAppStore = create<AppState>()(
                 bill.id === billId ? data.bill : bill
               ),
               bankAccount: data.bankAccount ?? state.bankAccount,
+              mealCards: data.mealCard
+                ? state.mealCards.map((card) =>
+                    card.id === data.mealCard.id ? data.mealCard : card
+                  )
+                : state.mealCards,
             }));
             if (paymentMethod === "credit") {
               await get().loadExpenses();
@@ -781,6 +839,85 @@ export const useAppStore = create<AppState>()(
           return null;
         } catch {
           return null;
+        }
+      },
+
+      updateCreditCard: async (cardId, payload) => {
+        try {
+          const response = await fetch(`/api/credit-cards/${cardId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.card) {
+            set((state) => ({
+              creditCards: state.creditCards.map((card) =>
+                card.id === cardId ? data.card : card
+              ),
+            }));
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
+      createMealCard: async (input) => {
+        try {
+          const response = await fetch("/api/meal-cards", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(input),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.card) {
+            set((state) => ({
+              mealCards: [...state.mealCards, data.card],
+            }));
+            return data.card as MealCard;
+          }
+          return null;
+        } catch {
+          return null;
+        }
+      },
+
+      rechargeMealCard: async (cardId, amount) => {
+        try {
+          const response = await fetch(`/api/meal-cards/${cardId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recharge: amount }),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.card) {
+            set((state) => ({
+              mealCards: state.mealCards.map((card) =>
+                card.id === cardId ? data.card : card
+              ),
+            }));
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
+      deleteMealCard: async (cardId) => {
+        try {
+          const response = await fetch(`/api/meal-cards/${cardId}`, {
+            method: "DELETE",
+          });
+          if (!response.ok) return false;
+          set((state) => ({
+            mealCards: state.mealCards.filter((card) => card.id !== cardId),
+          }));
+          return true;
+        } catch {
+          return false;
         }
       },
 
@@ -922,6 +1059,24 @@ export const useAppStore = create<AppState>()(
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ balance }),
+          });
+          const data = await parseJson(response);
+          if (data?.ok && data?.account) {
+            set({ bankAccount: data.account });
+            return true;
+          }
+          return false;
+        } catch {
+          return false;
+        }
+      },
+
+      addBankIncome: async (amount) => {
+        try {
+          const response = await fetch("/api/bank-account", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ income: amount }),
           });
           const data = await parseJson(response);
           if (data?.ok && data?.account) {

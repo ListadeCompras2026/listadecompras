@@ -16,6 +16,7 @@ const patchCardSchema = z.object({
     .or(z.literal("")),
   closingDay: z.number().int().min(1).max(31).optional(),
   dueDay: z.number().int().min(1).max(31).optional(),
+  creditLimit: z.number().min(0).nullable().optional(),
 });
 
 type RouteContext = {
@@ -61,6 +62,11 @@ export async function PATCH(request: Request, context: RouteContext) {
       card.closingDay = parsed.data.closingDay;
     if (typeof parsed.data.dueDay === "number")
       card.dueDay = parsed.data.dueDay;
+    if (parsed.data.creditLimit === null) {
+      card.set("creditLimit", undefined);
+    } else if (typeof parsed.data.creditLimit === "number") {
+      card.creditLimit = parsed.data.creditLimit;
+    }
     await card.save();
 
     if (parsed.data.name) {

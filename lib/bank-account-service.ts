@@ -20,6 +20,15 @@ export async function getBankAccount(userId: string): Promise<BankAccount> {
   return toBankAccount(created.toObject());
 }
 
+export async function addBankIncome(
+  userId: string,
+  amount: number
+): Promise<BankAccount> {
+  const current = await getBankAccount(userId);
+  const next = Number((current.balance + amount).toFixed(2));
+  return setBankBalance(userId, next);
+}
+
 export async function setBankBalance(
   userId: string,
   balance: number

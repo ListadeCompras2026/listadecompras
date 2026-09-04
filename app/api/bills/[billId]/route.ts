@@ -9,6 +9,7 @@ import {
   applyBankIfNeeded,
   refundBankIfNeeded,
 } from "@/lib/bank-account-service";
+import { applyMealIfNeeded } from "@/lib/meal-card-service";
 
 const patchBillSchema = z.object({
   name: z.string().trim().min(2).max(120).optional(),
@@ -31,6 +32,7 @@ const patchBillSchema = z.object({
   paymentMethod: z.enum(["credit", "debit", "pix", "cash", "meal"]).optional(),
   notes: z.string().trim().max(240).optional(),
   cardId: z.string().min(1).optional(),
+  mealCardId: z.string().min(1).optional(),
 });
 
 type RouteContext = {
@@ -85,6 +87,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       bill.paymentMethod = parsed.data.paymentMethod;
 
     let bankAccount = null;
+    let mealCard = null;
 
     if (nextStatus === "paid" && !wasPaid) {
       bill.status = "paid";
@@ -99,6 +102,12 @@ export async function PATCH(request: Request, context: RouteContext) {
       bankAccount = await applyBankIfNeeded(
         authUser.id,
         parsed.data.paymentMethod,
+        bill.amount
+      );
+      mealCard = await applyMealIfNeeded(
+        authUser.id,
+        parsed.data.paymentMethod,
+        parsed.data.mealCardId,
         bill.amount
       );
     }
@@ -119,6 +128,7 @@ export async function PATCH(request: Request, context: RouteContext) {
       ok: true,
       bill: toBill(bill.toObject()),
       bankAccount,
+      mealCard,
     });
   } catch {
     return NextResponse.json(

@@ -28,6 +28,7 @@ import {
   transactionCategoryLabels,
   transactionCategoryOrder,
 } from "@/lib/types";
+import { PaymentCardSelect } from "@/components/payment-card-select";
 
 interface ExpenseDialogProps {
   open: boolean;
@@ -42,12 +43,14 @@ export function ExpenseDialog({
 }: ExpenseDialogProps) {
   const createExpense = useAppStore((state) => state.createExpense);
   const creditCards = useAppStore((state) => state.creditCards);
+  const mealCards = useAppStore((state) => state.mealCards);
 
   const [name, setName] = useState("");
   const [amount, setAmount] = useState("");
   const [category, setCategory] = useState<TransactionCategory>("food");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [cardId, setCardId] = useState("");
+  const [mealCardId, setMealCardId] = useState("");
   const [store, setStore] = useState("");
   const [date, setDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [isSaving, setIsSaving] = useState(false);
@@ -59,9 +62,10 @@ export function ExpenseDialog({
     setCategory("food");
     setPaymentMethod("pix");
     setCardId(creditCards[0]?.id || "");
+    setMealCardId(mealCards[0]?.id || "");
     setStore("");
     setDate(format(new Date(), "yyyy-MM-dd"));
-  }, [creditCards, open]);
+  }, [creditCards, mealCards, open]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -74,6 +78,10 @@ export function ExpenseDialog({
       toast.error("Selecione o cartão");
       return;
     }
+    if (paymentMethod === "meal" && mealCards.length > 0 && !mealCardId) {
+      toast.error("Selecione o cartão alimentação");
+      return;
+    }
 
     setIsSaving(true);
     const success = await createExpense({
@@ -84,6 +92,8 @@ export function ExpenseDialog({
       store: store.trim() || undefined,
       cardId:
         paymentMethod === "credit" ? cardId || creditCards[0]?.id : undefined,
+      mealCardId:
+        paymentMethod === "meal" ? mealCardId || mealCards[0]?.id : undefined,
       completedAt: date,
     });
     setIsSaving(false);
@@ -177,30 +187,13 @@ export function ExpenseDialog({
               )}
             </div>
           </div>
-          {paymentMethod === "credit" && creditCards.length > 0 && (
-            <div className="space-y-2">
-              <Label>Cartão</Label>
-              <Select
-                value={cardId || creditCards[0]?.id}
-                onValueChange={setCardId}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {creditCards.map((card) => (
-                    <SelectItem key={card.id} value={card.id}>
-                      {card.isOwner
-                        ? card.isShared
-                          ? `${card.name} (compartilhado)`
-                          : card.name
-                        : `${card.name} (compartilhado)`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
+          <PaymentCardSelect
+            paymentMethod={paymentMethod}
+            cardId={cardId}
+            onCardIdChange={setCardId}
+            mealCardId={mealCardId}
+            onMealCardIdChange={setMealCardId}
+          />
           <div className="space-y-2">
             <Label htmlFor="expense-store">Onde foi (opcional)</Label>
             <Input

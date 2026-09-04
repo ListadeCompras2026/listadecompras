@@ -1,6 +1,6 @@
 "use client";
 
-import { Home, ListTodo, ArrowLeftRight, LayoutGrid, Plus } from "lucide-react";
+import { Home, ListTodo, CreditCard, LayoutGrid, Plus } from "lucide-react";
 import type { TabType } from "./main-app";
 import { cn } from "@/lib/utils";
 
@@ -16,7 +16,7 @@ const leftTabs = [
 ];
 
 const rightTabs = [
-  { id: "history" as TabType, label: "Transações", icon: ArrowLeftRight },
+  { id: "cards" as TabType, label: "Cartões", icon: CreditCard },
   { id: "settings" as TabType, label: "Mais", icon: LayoutGrid },
 ];
 
@@ -29,7 +29,8 @@ export function BottomNav({
     const Icon = tab.icon;
     const isActive =
       activeTab === tab.id ||
-      (tab.id === "settings" && activeTab === "reports");
+      (tab.id === "settings" &&
+        (activeTab === "reports" || activeTab === "history"));
 
     return (
       <button

@@ -17,6 +17,8 @@ export function toCreditCard(
     lastDigits: doc.lastDigits ?? undefined,
     closingDay: doc.closingDay,
     dueDay: doc.dueDay,
+    creditLimit:
+      typeof doc.creditLimit === "number" ? doc.creditLimit : undefined,
     createdBy: doc.createdBy,
     sharedWith,
     members: extras?.members ?? [],

@@ -83,6 +83,12 @@ export const transactionCategoryMeta: Record<
   ...billCategoryMeta,
 };
 
+export const mealCardSkins = [
+  "bg-gradient-to-br from-[#2D6A4F] to-[#081C15]",
+  "bg-gradient-to-br from-[#E85D04] to-[#9B2226]",
+  "bg-gradient-to-br from-[#0077B6] to-[#023E8A]",
+];
+
 export const creditCardSkins = [
   "bg-gradient-to-br from-[#5B3CC4] to-[#24145C]",
   "bg-gradient-to-br from-[#1F1F1F] to-[#111111]",
