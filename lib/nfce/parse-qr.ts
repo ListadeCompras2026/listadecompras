@@ -1,3 +1,5 @@
+import type { ParsedReceipt } from "@/lib/types";
+
 const ACCESS_KEY_REGEX = /\d{44}/;
 const QR_PARAM_REGEX = /(?:^|[?&])p=([^&\s]+)/i;
 const URL_REGEX = /https?:\/\/[^\s<>"']+/i;
@@ -53,18 +55,58 @@ export function extractNfceUrl(raw: string) {
   return undefined;
 }
 
+function looksLikeAmount(value?: string) {
+  if (!value) return false;
+  return /^\d{1,8}(?:[.,]\d{1,2})?$/.test(value);
+}
+
+function parseAmount(value?: string) {
+  if (!looksLikeAmount(value)) return undefined;
+  const amount = Number.parseFloat(value!.replace(",", "."));
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000) {
+    return undefined;
+  }
+  return Number(amount.toFixed(2));
+}
+
 function contingencyTotal(qrParam?: string) {
   if (!qrParam) return undefined;
   const parts = qrParam.split("|");
-  // Online: chave|versao|ambiente|csc|hash
-  // Contingencia: chave|versao|ambiente|dest|dhEmi|vNF|digest|csc|hash
-  if (parts.length < 8) return undefined;
-  const amount = Number.parseFloat(parts[5]?.replace(",", ".") || "");
-  const value = Number.isFinite(amount) && amount > 0 ? amount : Number.NaN;
-  if (!Number.isFinite(value) || value <= 0 || value > 1_000_000) {
-    return undefined;
+  // Online v2: chave|versao|ambiente|csc|hash (sem total)
+  // Contingencia v2: chave|versao|ambiente|dia|valor|digest|csc|hash
+  // Contingencia antiga: chave|versao|ambiente|dest|dhEmi|vNF|digest|csc|hash
+  if (parts.length >= 8 && /^\d{1,2}$/.test(parts[3] || "")) {
+    return parseAmount(parts[4]);
   }
-  return Number(value.toFixed(2));
+  if (parts.length >= 8) {
+    return parseAmount(parts[5]) || parseAmount(parts[4]);
+  }
+  if (parts.length >= 7) {
+    return parseAmount(parts[4]);
+  }
+  return undefined;
+}
+
+export function receiptFromTotal(
+  total: number,
+  accessKey?: string,
+  sourceUrl?: string
+): ParsedReceipt {
+  const amount = Number(total.toFixed(2));
+  return {
+    totalAmount: amount,
+    items: [
+      {
+        name: "Compra no cupom",
+        quantity: 1,
+        unit: "un",
+        unitPrice: amount,
+        totalPrice: amount,
+      },
+    ],
+    accessKey,
+    sourceUrl,
+  };
 }
 
 export function parseQrPayload(raw: string) {

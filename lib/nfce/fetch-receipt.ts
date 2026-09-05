@@ -1,6 +1,7 @@
 import type { ParsedReceipt, ReceiptItem } from "@/lib/types";
 import { parseBrNumber } from "@/lib/money";
-import { parseQrPayload } from "@/lib/nfce/parse-qr";
+import { parseQrPayload, receiptFromTotal } from "@/lib/nfce/parse-qr";
+import { ReceiptNeedsTotalError } from "@/lib/nfce/errors";
 import { paymentMethodFromNfce } from "@/lib/nfce/payment";
 
 const FETCH_TIMEOUT_MS = 4500;
@@ -21,7 +22,7 @@ const STATE_CONSULT_URLS: Record<string, (key: string) => string> = {
   "21": (key) =>
     `https://nfce.sefaz.ma.gov.br/portal/consultarNFCe.jsp?p=${key}`,
   "31": (key) =>
-    `https://nfce.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml?p=${key}`,
+    `https://portalsped.fazenda.mg.gov.br/portalnfce/sistema/qrcode.xhtml?p=${key}`,
   "50": (key) => `http://www.dfe.ms.gov.br/nfce/qrcode?p=${key}`,
   "51": (key) => `https://www.sefaz.mt.gov.br/nfce/consultanfce?p=${key}`,
   "15": (key) =>
@@ -694,20 +695,7 @@ function fallbackReceipt(
   sourceUrl?: string
 ): ParsedReceipt | null {
   if (!total || total <= 0) return null;
-  return {
-    totalAmount: Number(total.toFixed(2)),
-    items: [
-      {
-        name: "Compra no cupom",
-        quantity: 1,
-        unit: "un",
-        unitPrice: Number(total.toFixed(2)),
-        totalPrice: Number(total.toFixed(2)),
-      },
-    ],
-    accessKey,
-    sourceUrl,
-  };
+  return receiptFromTotal(total, accessKey, sourceUrl);
 }
 
 function attachMeta(
@@ -838,8 +826,10 @@ export async function parseNfceFromQr(rawQr: string): Promise<ParsedReceipt> {
   }
 
   if (!parsed || parsed.items.length === 0) {
-    throw new Error(
-      "Nao foi possivel ler os itens do cupom. Tente novamente ou use o checkout manual."
+    throw new ReceiptNeedsTotalError(
+      "A SEFAZ deste estado nao libera os itens do cupom automaticamente. Informe o total para lancar.",
+      accessKey,
+      sourceUrl
     );
   }
 

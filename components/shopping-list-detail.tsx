@@ -39,7 +39,9 @@ import { categoryLabels, paymentMethodLabels } from "@/lib/types";
 import { formatCurrency } from "@/lib/money";
 import { QrScannerDialog } from "@/components/qr-scanner-dialog";
 import { ReceiptReconcileDialog } from "@/components/receipt-reconcile-dialog";
+import { ReceiptTotalDialog } from "@/components/receipt-total-dialog";
 import { PaymentCardSelect } from "@/components/payment-card-select";
+import { ReceiptNeedsTotalError } from "@/lib/nfce/errors";
 
 interface ShoppingListDetailProps {
   list: ShoppingList;
@@ -61,6 +63,10 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
   const [isReconcileOpen, setIsReconcileOpen] = useState(false);
   const [receipt, setReceipt] = useState<ParsedReceipt | null>(null);
   const [isReadingReceipt, setIsReadingReceipt] = useState(false);
+  const [totalPrompt, setTotalPrompt] = useState<{
+    accessKey?: string;
+    sourceUrl?: string;
+  } | null>(null);
 
   const [itemName, setItemName] = useState("");
   const [itemQuantity, setItemQuantity] = useState("1");
@@ -167,6 +173,13 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
       setReceipt(parsed);
       setIsReconcileOpen(true);
     } catch (error) {
+      if (error instanceof ReceiptNeedsTotalError) {
+        setTotalPrompt({
+          accessKey: error.accessKey,
+          sourceUrl: error.sourceUrl,
+        });
+        return;
+      }
       toast.error(
         error instanceof Error ? error.message : "Nao foi possivel ler o cupom"
       );
@@ -455,6 +468,19 @@ export function ShoppingListDetail({ list, onBack }: ShoppingListDetailProps) {
         open={isScannerOpen}
         onOpenChange={setIsScannerOpen}
         onScan={handleScan}
+      />
+      <ReceiptTotalDialog
+        open={!!totalPrompt}
+        accessKey={totalPrompt?.accessKey}
+        sourceUrl={totalPrompt?.sourceUrl}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) setTotalPrompt(null);
+        }}
+        onConfirm={(parsed) => {
+          setTotalPrompt(null);
+          setReceipt(parsed);
+          setIsReconcileOpen(true);
+        }}
       />
       <ReceiptReconcileDialog
         open={isReconcileOpen}

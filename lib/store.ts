@@ -19,6 +19,7 @@ import type {
   MealCard,
 } from "./types";
 import { matchReceiptToList } from "@/lib/nfce/match-items";
+import { ReceiptNeedsTotalError } from "@/lib/nfce/errors";
 import { getPeriod } from "@/lib/period";
 
 interface CompletePurchaseInput {
@@ -595,6 +596,14 @@ export const useAppStore = create<AppState>()(
         const data = await parseJson(response);
         if (data?.ok && data?.receipt) {
           return data.receipt as ParsedReceipt;
+        }
+        if (data?.needsTotal) {
+          throw new ReceiptNeedsTotalError(
+            data.error ||
+              "A SEFAZ nao liberou os itens. Informe o total do cupom.",
+            data.accessKey,
+            data.sourceUrl
+          );
         }
         throw new Error(data?.error || "Nao foi possivel ler o cupom");
       },

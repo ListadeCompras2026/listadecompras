@@ -17,6 +17,8 @@ import { formatCurrency } from "@/lib/money";
 import type { ParsedReceipt, PaymentMethod } from "@/lib/types";
 import { paymentMethodLabels } from "@/lib/types";
 import { PaymentCardSelect } from "@/components/payment-card-select";
+import { ReceiptTotalDialog } from "@/components/receipt-total-dialog";
+import { ReceiptNeedsTotalError } from "@/lib/nfce/errors";
 
 interface QuickReceiptDialogProps {
   open: boolean;
@@ -42,6 +44,10 @@ export function QuickReceiptDialog({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("pix");
   const [cardId, setCardId] = useState("");
   const [mealCardId, setMealCardId] = useState("");
+  const [totalPrompt, setTotalPrompt] = useState<{
+    accessKey?: string;
+    sourceUrl?: string;
+  } | null>(null);
   const keepOpenRef = useRef(false);
 
   useEffect(() => {
@@ -50,6 +56,7 @@ export function QuickReceiptDialog({
       setReceipt(null);
       setIsReading(false);
       setIsSaving(false);
+      setTotalPrompt(null);
       keepOpenRef.current = false;
       return;
     }
@@ -80,6 +87,13 @@ export function QuickReceiptDialog({
         setMealCardId(mealCards[0]?.id || "");
       }
     } catch (error) {
+      if (error instanceof ReceiptNeedsTotalError) {
+        setTotalPrompt({
+          accessKey: error.accessKey,
+          sourceUrl: error.sourceUrl,
+        });
+        return;
+      }
       toast.error(
         error instanceof Error ? error.message : "Não foi possível ler o cupom"
       );
@@ -150,6 +164,23 @@ export function QuickReceiptDialog({
         }}
         onScan={(value) => {
           void handleScan(value);
+        }}
+      />
+
+      <ReceiptTotalDialog
+        open={open && !!totalPrompt}
+        accessKey={totalPrompt?.accessKey}
+        sourceUrl={totalPrompt?.sourceUrl}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen) {
+            setTotalPrompt(null);
+            onOpenChange(false);
+          }
+        }}
+        onConfirm={(parsed) => {
+          setTotalPrompt(null);
+          setReceipt(parsed);
+          setPaymentMethod(parsed.paymentMethod || "pix");
         }}
       />
 

@@ -42,7 +42,9 @@ export function paymentMethodFromNfce(
     text.includes("alimentacao") ||
     text.includes("refeição") ||
     text.includes("refeicao") ||
-    text.includes("vale")
+    text.includes("vale") ||
+    text.includes("ticket") ||
+    text.includes("voucher")
   ) {
     return "meal";
   }
